@@ -12,7 +12,7 @@ from werkzeug.utils import secure_filename
 
 from .ai_client import get_provider
 from .config import Settings, load_saved_settings, save_settings
-from .history import append_history, load_history, mask_api_key, new_entry
+from .history import append_history, mask_api_key, new_entry
 from .ingestion import append_manual_from_pdf
 from .knowledge_base import KnowledgeBase
 from .styles import (
@@ -405,7 +405,6 @@ def _render(
     styles = merged_presets(DATA_DIR)
     custom_presets = load_custom_presets(DATA_DIR)
     settings = load_saved_settings(DATA_DIR)
-    history = load_history(DATA_DIR)
     sessions, active = _ensure_sessions(DATA_DIR, chat_id)
     preset_groups = _sync_preset_groups(DATA_DIR, custom_presets)
     manual_entries = _load_manual_entries(DATA_DIR)
@@ -418,10 +417,10 @@ def _render(
 
     template = """
 <!doctype html>
-<html lang=\"zh\">
+<html lang="zh">
   <head>
-    <meta charset=\"utf-8\" />
-    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>LLM 邮件助手 - 对话模式</title>
     <style>
       :root {
@@ -444,316 +443,384 @@ def _render(
         color: var(--text);
         margin: 0;
         min-height: 100vh;
-        padding: 18px 18px 32px;
+        padding: 12px 18px 24px;
         display: flex;
         flex-direction: column;
-        gap: 14px;
+        gap: 12px;
       }
       h1 { margin: 0; font-size: 30px; }
       h2 { margin: 0; font-size: 20px; }
       h3 { margin: 0 0 6px; font-size: 16px; }
       a { color: var(--accent-2); text-decoration: none; }
-      .top-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
-      .pill { display: inline-flex; align-items: center; padding: 6px 10px; background: rgba(34,211,238,0.12); color: #a5f3fc; border-radius: 999px; font-size: 12px; }
-      .widget { background: linear-gradient(145deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); border: 1px solid var(--border); border-radius: 14px; padding: 12px; box-shadow: 0 12px 40px rgba(0,0,0,0.3); position: relative; }
-      .widget details { background: rgba(255,255,255,0.02); border: 1px solid #1f2937; border-radius: 10px; padding: 8px 10px; }
-      .widget summary { cursor: pointer; font-weight: 700; }
       .muted { color: var(--muted); font-size: 13px; }
+      .pill { display: inline-flex; align-items: center; padding: 6px 10px; background: rgba(34,211,238,0.12); color: #a5f3fc; border-radius: 999px; font-size: 12px; gap: 6px; }
       .chip { display: inline-flex; padding: 4px 8px; border-radius: 999px; background: rgba(255,255,255,0.08); font-size: 12px; }
-      .list-inline { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-      .list-inline span { padding: 4px 8px; border-radius: 10px; background: rgba(255,255,255,0.06); font-size: 12px; }
-      .floating-tools { display: flex; flex-wrap: wrap; gap: 10px; }
-      .mini-window { position: relative; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 12px; padding: 8px 10px; min-width: 220px; }
-      .mini-window summary { display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
-      .mini-body { margin-top: 8px; display: grid; gap: 8px; }
+      .topbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; background: linear-gradient(120deg, rgba(34,211,238,0.12), rgba(139,92,246,0.12)); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; box-shadow: 0 12px 32px rgba(0,0,0,0.28); }
+      .status { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr)); gap: 8px; width: 100%; }
+      .status-card { background: rgba(255,255,255,0.05); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; }
+      .status-card strong { display: block; font-size: 12px; color: var(--muted); }
+      .workspace { display: grid; grid-template-columns: 70px 270px 1fr 360px; gap: 12px; align-items: stretch; }
+      .rail { background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 14px; padding: 10px 6px; display: grid; gap: 10px; text-align: center; }
+      .rail .icon-btn { width: 46px; height: 46px; display: grid; place-items: center; background: rgba(255,255,255,0.04); border: 1px solid var(--border); border-radius: 12px; color: var(--text); text-decoration: none; font-weight: 700; box-shadow: inset 0 1px 0 rgba(255,255,255,0.05); }
+      .rail .icon-btn:hover { border-color: var(--accent-2); color: var(--accent-2); }
+      .sidebar { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px; display: grid; grid-template-rows: auto 1fr; gap: 10px; box-shadow: 0 10px 32px rgba(0,0,0,0.32); }
+      .sidebar h3 { margin-bottom: 4px; }
+      .chat-list { overflow: auto; display: grid; gap: 8px; padding-right: 4px; }
+      .chat-item { padding: 10px; border-radius: 10px; cursor: pointer; border: 1px solid transparent; background: rgba(255,255,255,0.02); display: grid; gap: 4px; }
+      .chat-item.active { border-color: var(--accent-2); background: rgba(34,211,238,0.07); }
+      .chat-panel { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px; display: grid; grid-template-rows: auto 1fr auto; gap: 10px; box-shadow: 0 10px 32px rgba(0,0,0,0.32); }
+      .chat-header { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+      .chat-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+      .chat-window { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px; overflow-y: auto; min-height: 380px; display: grid; gap: 10px; }
+      .msg { padding: 10px 12px; border-radius: 12px; max-width: 90%; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+      .msg.user { background: linear-gradient(135deg, rgba(34,211,238,0.2), rgba(34,211,238,0.08)); margin-left: auto; }
+      .msg.assistant { background: rgba(255,255,255,0.05); border: 1px solid var(--border); }
+      .chat-form { display: grid; gap: 8px; }
+      .chat-form textarea { width: 100%; min-height: 110px; border-radius: 12px; border: 1px solid var(--border); background: rgba(255,255,255,0.04); color: var(--text); padding: 10px; font-size: 14px; resize: vertical; }
+      .control-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 8px; }
+      .control-card { background: rgba(255,255,255,0.04); border: 1px solid var(--border); border-radius: 12px; padding: 10px; display: grid; gap: 6px; }
+      .control-card details { background: rgba(255,255,255,0.03); border-radius: 8px; padding: 8px; border: 1px solid rgba(255,255,255,0.05); }
+      .control-card summary { cursor: pointer; font-weight: 700; }
       .check-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 6px; }
-      .inline-badge { font-size: 12px; padding: 2px 6px; border-radius: 8px; background: rgba(34,211,238,0.12); color: #a5f3fc; }
-      .chat-layout { display: grid; grid-template-columns: 280px 1fr; gap: 14px; background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 12px; box-shadow: 0 16px 40px rgba(0,0,0,0.35); }
-      .chat-list { border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
-      .chat-item { padding: 10px; border-radius: 10px; cursor: pointer; border: 1px solid transparent; background: rgba(255,255,255,0.02); }
-      .chat-item.active { border-color: var(--accent-2); background: rgba(34,211,238,0.08); }
-      .chat-main { display: flex; flex-direction: column; gap: 10px; min-height: 60vh; }
-      .chat-window { flex: 1; background: #0b1220; border: 1px solid var(--border); border-radius: 12px; padding: 12px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
-      .msg { max-width: 78%; padding: 10px 12px; border-radius: 12px; line-height: 1.5; box-shadow: inset 0 1px 0 rgba(255,255,255,0.03); }
-      .msg.user { margin-left: auto; background: linear-gradient(120deg, var(--accent), var(--accent-2)); color: #0b1220; }
-      .msg.assistant { margin-right: auto; background: #111827; border: 1px solid var(--border); }
-      .chat-form { background: #0d1628; border: 1px solid var(--border); border-radius: 12px; padding: 12px; display: grid; grid-template-columns: 1fr 260px; gap: 10px; align-items: end; }
-      .chat-form textarea { width: 100%; min-height: 100px; background: #0b1220; border: 1px solid var(--border); color: var(--text); border-radius: 10px; padding: 10px; }
-      .chat-form .controls { display: grid; gap: 8px; }
-      select, input { width: 100%; background: #0b1220; border: 1px solid var(--border); color: var(--text); padding: 9px 10px; border-radius: 10px; }
-      button { border: none; padding: 10px 14px; border-radius: 10px; font-weight: 700; cursor: pointer; }
-      button.primary { background: linear-gradient(90deg, var(--accent), var(--accent-2)); color: #0b1220; box-shadow: 0 10px 28px rgba(34,211,238,0.35); }
-      button.secondary { background: #1f2937; color: var(--text); }
-      form.inline { display: flex; gap: 8px; }
-      .flash { color: var(--danger); font-weight: 700; }
-      .message { color: #34d399; font-weight: 700; }
-      .history-card { background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 12px; padding: 10px; }
-      @media (max-width: 960px) { .chat-layout { grid-template-columns: 1fr; } .chat-form { grid-template-columns: 1fr; } .chat-list { border-right: none; border-bottom: 1px solid var(--border); padding-bottom: 10px; } }
+      .inline { display: flex; gap: 6px; align-items: center; }
+      input, select, button { border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text); padding: 8px 10px; }
+      button { cursor: pointer; border: none; font-weight: 700; }
+      button.primary { background: linear-gradient(135deg, var(--accent-2), #2dd4bf); color: #02151f; }
+      button.secondary { background: rgba(255,255,255,0.08); border: 1px solid var(--border); }
+      .info-panel { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px; display: grid; gap: 10px; box-shadow: 0 10px 32px rgba(0,0,0,0.32); }
+      .info-card { background: rgba(255,255,255,0.04); border: 1px solid var(--border); border-radius: 12px; padding: 10px; display: grid; gap: 8px; }
+      .history-card { background: rgba(255,255,255,0.04); border: 1px solid var(--border); border-radius: 10px; padding: 8px; }
+      .form-grid { display: grid; gap: 6px; }
+      .badge-row { display: flex; flex-wrap: wrap; gap: 6px; }
+      .flash { padding: 10px; border-radius: 10px; background: rgba(248,113,113,0.12); border: 1px solid rgba(248,113,113,0.35); }
     </style>
   </head>
   <body>
-    <div style=\"display:flex;justify-content:space-between;align-items:center;gap:10px;\">
+    <div class="topbar">
       <div>
-        <h1>LLM 邮件助手 · 对话模式</h1>
-        <div class=\"muted\">顶部小窗归纳预设组、说明书组、API 模型；底部对话框支持多会话切换。</div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <h2 style="margin:0;">LLM 邮件助手</h2>
+          <span class="pill">对话模式</span>
+        </div>
+        <div class="muted">SillyTavern 风格布局：左侧会话，中央聊天，右侧资源与库。</div>
       </div>
-      <div class=\"pill\">数据目录：{{ data_dir }}</div>
+      <div class="status">
+        <div class="status-card"><strong>数据目录</strong>{{ data_dir }}</div>
+        <div class="status-card"><strong>Base</strong>{{ settings.base_url or '未设置' }}</div>
+        <div class="status-card"><strong>模型</strong>{{ settings.model or '未设置' }}</div>
+        <div class="status-card"><strong>API Key</strong>{{ masked_key or '未保存' }}</div>
+      </div>
     </div>
 
     {% with messages = get_flashed_messages() %}
-      {% if messages %}<div class=\"flash\">{{ messages[0] }}</div>{% endif %}
+      {% if messages %}
+        <div class="flash">{{ messages|join('；') }}</div>
+      {% endif %}
     {% endwith %}
-    {% if message %}<div class=\"message\">{{ message }}</div>{% endif %}
 
-    <div class=\"top-row\">
-      <div class=\"widget\">
-        <details open>
-          <summary>预设组</summary>
-          {% for group in preset_groups %}
-            <div style=\"margin-top:6px;\"><strong>{{ group.name }}</strong></div>
-            <div class=\"list-inline\">
-              {% for item in group.presets %}<span>{{ item.key }}｜{{ item.name }}</span>{% endfor %}
-            </div>
-          {% endfor %}
-          <details class=\"mini-window\" style=\"margin-top:8px;\">
-            <summary>新增 / 编辑自定义预设</summary>
-            <div class=\"mini-body\">
-              <form method=\"post\" action=\"{{ url_for('save_preset') }}\" style=\"display:grid; gap:6px;\">
-                <input name=\"preset_key\" placeholder=\"预设 Key（唯一标识）\" required />
-                <input name=\"preset_name\" placeholder=\"预设名称\" required />
-                <input name=\"preset_tone\" placeholder=\"语气（例如：正式且友好）\" required />
-                <input name=\"preset_closing\" placeholder=\"结尾（例如：期待回复，祝好）\" required />
-                <textarea name=\"preset_structure\" placeholder=\"结构（每行一条）\"></textarea>
-                <textarea name=\"preset_reminders\" placeholder=\"提醒（每行一条）\"></textarea>
-                <input name=\"preset_group\" placeholder=\"所属预设组名称（可新建）\" />
-                <button class=\"secondary\" type=\"submit\">保存/覆盖预设</button>
-              </form>
-              <form method=\"post\" action=\"{{ url_for('delete_preset') }}\" class=\"inline\" style=\"margin-top:6px; gap:6px;\">
-                <input name=\"preset_key\" placeholder=\"删除自定义预设 Key\" required />
-                <button class=\"secondary\" type=\"submit\">删除预设</button>
-              </form>
-            </div>
-          </details>
-          <details class=\"mini-window\" style=\"margin-top:8px;\">
-            <summary>预设组管理</summary>
-            <div class=\"mini-body\" style=\"gap:10px;\">
-              <form method=\"post\" action=\"{{ url_for('manage_preset_group') }}\" class=\"inline\" style=\"gap:6px;\">
-                <input name=\"group_name\" placeholder=\"新增预设组名称\" required />
-                <input type=\"hidden\" name=\"action\" value=\"add\" />
-                <button class=\"secondary\" type=\"submit\">新增组</button>
-              </form>
-              <form method=\"post\" action=\"{{ url_for('manage_preset_group') }}\" class=\"inline\" style=\"gap:6px;\">
-                <select name=\"group_id\" required>
-                  <option value=\"\">选择要重命名的组</option>
-                  {% for group in preset_groups if group.id != "system" %}
-                    <option value=\"{{ group.id }}\">{{ group.name }}</option>
-                  {% endfor %}
-                </select>
-                <input name=\"group_name\" placeholder=\"新名称\" required />
-                <input type=\"hidden\" name=\"action\" value=\"rename\" />
-                <button class=\"secondary\" type=\"submit\">重命名组</button>
-              </form>
-              <form method=\"post\" action=\"{{ url_for('manage_preset_group') }}\" class=\"inline\" style=\"gap:6px;\">
-                <select name=\"group_id\" required>
-                  <option value=\"\">选择要删除的组（系统组无法删除）</option>
-                  {% for group in preset_groups if group.id not in ["system"] %}
-                    <option value=\"{{ group.id }}\">{{ group.name }}</option>
-                  {% endfor %}
-                </select>
-                <input type=\"hidden\" name=\"action\" value=\"delete\" />
-                <button class=\"secondary\" type=\"submit\">删除组</button>
-              </form>
-            </div>
-          </details>
-      <div class=\"widget\">
-        <details open>
-          <summary>说明书组</summary>
-          {% if manual_groups %}
-            {% for kind, titles in manual_groups.items() %}
-              <div style=\"margin-top:6px;\"><strong>{{ kind }}</strong> <span class=\"chip\">{{ titles|length }} 篇</span></div>
-              <div class=\"list-inline\">{% for title in titles %}<span>{{ title }}</span>{% endfor %}</div>
-            {% endfor %}
-          {% else %}
-            <div class=\"muted\">暂无说明书或案例，请上传 PDF 入库。</div>
-          {% endif %}
-          <details class=\"mini-window\" style=\"margin-top:8px;\">
-            <summary>上传 / 管理说明书</summary>
-            <div class=\"mini-body\">
-              <form method=\"post\" action=\"{{ url_for('upload') }}\" enctype=\"multipart/form-data\" style=\"display:grid; gap:6px;\">
-                <input type=\"file\" name=\"manual_pdfs\" accept=\"application/pdf\" multiple />
-                <div class=\"muted\">可一次选择多个 PDF，逐个入库。</div>
-                <button class=\"secondary\" type=\"submit\">批量上传并入库</button>
-              </form>
-              <div style=\"display:grid; gap:6px;\">
-                <form method=\"post\" action=\"{{ url_for('manage_manual_group') }}\" class=\"inline\" style=\"gap:6px;\">
-                  <input name=\"group_name\" placeholder=\"新增说明书组名称\" required />
-                  <input type=\"hidden\" name=\"action\" value=\"add\" />
-                  <button class=\"secondary\" type=\"submit\">新增组</button>
-                </form>
-                <form method=\"post\" action=\"{{ url_for('manage_manual_group') }}\" class=\"inline\" style=\"gap:6px;\">
-                  <select name=\"group_old\" required>
-                    <option value=\"\">选择要重命名的组</option>
-                    {% for name in manual_group_names %}
-                      <option value=\"{{ name }}\">{{ name }}</option>
-                    {% endfor %}
-                  </select>
-                  <input name=\"group_new\" placeholder=\"新名称\" required />
-                  <input type=\"hidden\" name=\"action\" value=\"rename\" />
-                  <button class=\"secondary\" type=\"submit\">重命名组</button>
-                </form>
-                <form method=\"post\" action=\"{{ url_for('manage_manual_group') }}\" class=\"inline\" style=\"gap:6px;\">
-                  <select name=\"group_name\" required>
-                    <option value=\"\">选择要删除的组</option>
-                    {% for name in manual_group_names %}
-                      <option value=\"{{ name }}\">{{ name }}</option>
-                    {% endfor %}
-                  </select>
-                  <input type=\"hidden\" name=\"action\" value=\"delete\" />
-                  <button class=\"secondary\" type=\"submit\">删除组</button>
-                </form>
-                <form method=\"post\" action=\"{{ url_for('update_manual') }}\" style=\"display:grid; gap:6px;\">
-                  <select name=\"manual_select\" required>
-                    <option value=\"\">选择说明书以重命名/移动分组</option>
-                    {% for item in manual_entries %}
-                      <option value=\"{{ item.id }}||{{ item.dataset }}\">{{ item.title }}｜组：{{ item.kind }}｜源：{{ item.dataset }} </option>
-                    {% endfor %}
-                  </select>
-                  <input name=\"manual_title\" placeholder=\"新标题\" required />
-                  <input name=\"manual_kind\" placeholder=\"分组名称（不存在将新建）\" required />
-                  <button class=\"secondary\" type=\"submit\">保存说明书修改</button>
-                </form>
-                <form method=\"post\" action=\"{{ url_for('delete_manual') }}\" class=\"inline\" style=\"gap:6px;\">
-                  <select name=\"manual_select\" required>
-                    <option value=\"\">选择要删除的说明书</option>
-                    {% for item in manual_entries %}
-                      <option value=\"{{ item.id }}||{{ item.dataset }}\">{{ item.title }}（{{ item.kind }}）</option>
-                    {% endfor %}
-                  </select>
-                  <button class=\"secondary\" type=\"submit\">删除说明书</button>
-                </form>
-              </div>
-            </div>
-          </details>
-        </details>
+    {% if message %}
+      <div class="flash" style="background:rgba(34,211,238,0.1);border-color:rgba(34,211,238,0.35);color:#a5f3fc;">{{ message }}</div>
+    {% endif %}
+
+    <div class="workspace">
+      <div class="rail">
+        <a class="icon-btn" title="会话" href="#">💬</a>
+        <a class="icon-btn" title="预设" href="#presets">🎛️</a>
+        <a class="icon-btn" title="说明书" href="#manuals">📚</a>
+        <a class="icon-btn" title="API" href="#api">⚙️</a>
       </div>
 
-      <div class=\"widget\">
-        <details open>
-          <summary>API & 模型</summary>
-          <div class=\"muted\">已保存：Base {{ settings.base_url or '未设置' }} ｜ 模型 {{ settings.model or '未设置' }} ｜ Key {{ masked_key or '未保存' }}</div>
-          <div style=\"margin-top:8px;\"><strong>兼容 Base</strong></div>
-          <div class=\"list-inline\">{% for base in default_bases %}<span>{{ base }}</span>{% endfor %}</div>
-          <div style=\"margin-top:8px;\"><strong>模型示例</strong></div>
-          {% for item in model_profiles %}
-            <div class=\"history-card\" style=\"margin-top:6px;\">
-              <div><strong>{{ item.name }}</strong> ｜ {{ item.base }}</div>
-              <div class=\"muted\">{{ item.models|join(', ') }}</div>
-            </div>
-          {% endfor %}
-          <form method=\"post\" action=\"{{ url_for('save_api_settings') }}\" style=\"margin-top:8px; display:grid; gap:6px;\">
-            <input name=\"base_custom\" placeholder=\"API Base\" value=\"{{ settings.base_url or '' }}\" />
-            <input name=\"model\" placeholder=\"模型\" value=\"{{ settings.model or '' }}\" />
-            <input name=\"api_key\" type=\"password\" placeholder=\"API Key\" value=\"{{ settings.api_key or '' }}\" />
-            <button class=\"secondary\" type=\"submit\">保存 API 信息</button>
+      <div class="sidebar">
+        <div>
+          <h3>会话列表</h3>
+          <div class="muted">切换或创建多条对话，点击进入。</div>
+        </div>
+        <div class="chat-list">
+          <form method="post" action="{{ url_for('new_chat') }}" class="inline">
+            <input name="chat_title" placeholder="新对话标题" />
+            <button class="secondary" type="submit">新建</button>
           </form>
-        </details>
-      </div>
-    </div>
-
-    <div class=\"chat-layout\">
-      <div class=\"chat-list\">
-        <form method=\"post\" action=\"{{ url_for('new_chat') }}\" class=\"inline\">
-          <input name=\"chat_title\" placeholder=\"新对话标题\" />
-          <button class=\"secondary\" type=\"submit\">新建</button>
-        </form>
-        {% for session in sessions %}
-          <a class=\"chat-item {% if session.id == active.id %}active{% endif %}\" href=\"{{ url_for('index', chat_id=session.id) }}\">{{ session.title }}</a>
-        {% endfor %}
+          {% for session in sessions %}
+            <a class="chat-item {% if session.id == active.id %}active{% endif %}" href="{{ url_for('index', chat_id=session.id) }}">
+              <div style="font-weight:700;">{{ session.title }}</div>
+              <div class="muted">消息 {{ session.messages|length }}</div>
+            </a>
+          {% endfor %}
+        </div>
       </div>
 
-      <div class=\"chat-main\">
-        <div class=\"chat-window\">
+      <div class="chat-panel">
+        <div class="chat-header">
+          <div>
+            <h3 style="margin:0;">{{ active.title }}</h3>
+            <div class="muted">点击右侧折叠选择预设、说明书组与 API，底部发送消息。</div>
+          </div>
+          <div class="chat-tags">
+            {% for key in selected_styles %}
+              <span class="chip">预设 {{ key }}</span>
+            {% endfor %}
+            {% for gid in selected_preset_groups %}
+              <span class="chip">预设组 {{ gid }}</span>
+            {% endfor %}
+            {% for name in selected_manual_groups %}
+              <span class="chip">说明书组 {{ name }}</span>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="chat-window">
           {% if not active.messages %}
-            <div class=\"muted\">暂无对话，输入内容开始交流。</div>
+            <div class="muted">暂无对话，输入内容开始交流。</div>
           {% endif %}
           {% for msg in active.messages %}
-            <div class=\"msg {{ msg.role }}\">{{ msg.content }}</div>
+            <div class="msg {{ msg.role }}">{{ msg.content }}</div>
           {% endfor %}
         </div>
-        <form class=\"chat-form\" method=\"post\" action=\"{{ url_for('send_message') }}\">
-          <input type=\"hidden\" name=\"chat_id\" value=\"{{ active.id }}\" />
-          <textarea name=\"message\" placeholder=\"输入邮件需求或和助手聊天，回复将展示在下方对话框...\" required>{{ last_message }}</textarea>
-          <div class=\"controls\">
-            <details class=\"mini-window\" open>
-              <summary>会话资源选择 <span class=\"inline-badge\">预设 & 说明书</span></summary>
-              <div class=\"mini-body\">
-                <div>预设组（勾选即可套用组内全部预设）</div>
-                <div class=\"check-grid\">
+
+        <form class="chat-form" method="post" action="{{ url_for('send_message') }}">
+          <input type="hidden" name="chat_id" value="{{ active.id }}" />
+          <textarea name="message" placeholder="输入邮件需求或与助手聊天..." required>{{ last_message }}</textarea>
+
+          <div class="control-grid">
+            <div class="control-card">
+              <details open>
+                <summary>预设与说明书选择</summary>
+                <div class="muted">勾选组快速套用，或在下方单选多选组合。</div>
+                <div class="check-grid">
                   {% for group in preset_groups %}
-                    <label><input type=\"checkbox\" name=\"preset_group_ids\" value=\"{{ group.id }}\" {% if group.id in selected_preset_groups %}checked{% endif %}> {{ group.name }}</label>
+                    <label><input type="checkbox" name="preset_group_ids" value="{{ group.id }}" {% if group.id in selected_preset_groups %}checked{% endif %}> {{ group.name }}</label>
                   {% endfor %}
                 </div>
-                <div>预设组合（多选可覆盖组内默认）</div>
-                <select name=\"style_keys\" multiple size=\"4\">
+                <div class="muted">预设组合（多选覆盖）</div>
+                <select name="style_keys" multiple size="4">
                   {% for key, preset in styles.items() %}
-                    <option value=\"{{ key }}\" {% if key in selected_styles %}selected{% endif %}>{{ key }}｜{{ preset.name }}</option>
+                    <option value="{{ key }}" {% if key in selected_styles %}selected{% endif %}>{{ key }}｜{{ preset.name }}</option>
                   {% endfor %}
                 </select>
-                <div>说明书组（仅搜索勾选的分组；为空则搜索全部）</div>
-                <div class=\"check-grid\">
+                <div class="muted" style="margin-top:6px;">说明书组（限制搜索范围）</div>
+                <div class="check-grid">
                   {% for name in manual_group_names %}
-                    <label><input type=\"checkbox\" name=\"manual_groups\" value=\"{{ name }}\" {% if name in selected_manual_groups %}checked{% endif %}> {{ name }}</label>
+                    <label><input type="checkbox" name="manual_groups" value="{{ name }}" {% if name in selected_manual_groups %}checked{% endif %}> {{ name }}</label>
                   {% endfor %}
                 </div>
-              </div>
-            </details>
-            <select name=\"base_choice\">
-              <option value=\"\">选择兼容 Base（可选）</option>
-              {% for base in default_bases %}
-                <option value=\"{{ base }}\" {% if settings.base_url == base %}selected{% endif %}>{{ base }}</option>
-              {% endfor %}
-            </select>
-            <input name=\"base_custom\" placeholder=\"自定义 Base\" value=\"{{ settings.base_url or '' }}\" />
-            <input name=\"model\" placeholder=\"模型名称\" value=\"{{ settings.model or '' }}\" />
-            <input name=\"api_key\" type=\"password\" placeholder=\"API Key\" value=\"{{ settings.api_key or '' }}\" />
-            <button class=\"primary\" type=\"submit\">发送并生成回复</button>
+              </details>
+            </div>
+            <div class="control-card">
+              <details open id="api-inline">
+                <summary>模型与 API</summary>
+                <div class="muted">可选择兼容 Base 或自定义，填写模型与 Key。</div>
+                <select name="base_choice">
+                  <option value="">选择兼容 Base（可选）</option>
+                  {% for base in default_bases %}
+                    <option value="{{ base }}" {% if settings.base_url == base %}selected{% endif %}>{{ base }}</option>
+                  {% endfor %}
+                </select>
+                <input name="base_custom" placeholder="自定义 Base" value="{{ settings.base_url or '' }}" />
+                <input name="model" placeholder="模型名称" value="{{ settings.model or '' }}" />
+                <input name="api_key" type="password" placeholder="API Key" value="{{ settings.api_key or '' }}" />
+                <div class="muted">示例模型：</div>
+                <div class="badge-row">
+                  {% for item in model_profiles %}
+                    <span class="chip">{{ item.name }}｜{{ item.models|join(', ') }}</span>
+                  {% endfor %}
+                </div>
+              </details>
+            </div>
+          </div>
+
+          <div style="display:flex;justify-content:flex-end;gap:8px;">
+            <button class="primary" type="submit">发送并生成回复</button>
           </div>
         </form>
       </div>
-    </div>
 
-    <div class=\"widget\" style=\"margin-top:6px;\">
-      <div style=\"display:flex;justify-content:space-between;align-items:center;\">
-        <h3>最近操作</h3><span class=\"chip\">最新 50 条</span>
-      </div>
-      {% if not history %}
-        <div class=\"muted\">暂无历史操作。</div>
-      {% endif %}
-      <div style=\"display:grid;gap:8px;\">
-        {% for item in history %}
-          <div class=\"history-card\">
-            <div><strong>{{ item.action }}</strong> ｜ {{ item.timestamp }}</div>
-            <div class=\"muted\">{{ item.detail.get('message', item.detail.get('email', '')) }}</div>
+      <div class="info-panel">
+        <div class="info-card" id="presets">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <h3 style="margin:0;">预设库</h3>
+            <span class="chip">{{ styles|length }} 条</span>
           </div>
-        {% endfor %}
-      </div>
-      {% if reply %}
-        <div class=\"history-card\" style=\"margin-top:8px;\">
-          <div><strong>最新生成</strong></div>
-          <pre style=\"white-space:pre-wrap;word-break:break-word;\">{{ reply }}</pre>
+          <div class="muted">创建、重命名、删除预设组，或直接维护预设。</div>
+          <form method="post" action="{{ url_for('save_preset') }}" class="form-grid">
+            <input name="preset_key" placeholder="唯一 Key" required />
+            <input name="preset_name" placeholder="显示名称" required />
+            <input name="preset_tone" placeholder="语气（如：友好、专业）" />
+            <input name="preset_structure" placeholder="结构（用 | 分隔段落提示）" />
+            <input name="preset_closing" placeholder="结尾提示" />
+            <input name="preset_reminders" placeholder="提醒（用 | 分隔）" />
+            <button class="secondary" type="submit">保存/更新预设</button>
+          </form>
+          <form method="post" action="{{ url_for('delete_preset') }}" class="inline" style="gap:6px;">
+            <input name="preset_key" placeholder="删除预设 Key" required />
+            <button class="secondary" type="submit">删除自定义预设</button>
+          </form>
+          <details>
+            <summary>管理预设组</summary>
+            <div class="form-grid" style="margin-top:6px;">
+              <form method="post" action="{{ url_for('manage_preset_group') }}" class="inline" style="gap:6px;">
+                <input name="group_name" placeholder="新增分组名称" required />
+                <input type="hidden" name="action" value="add" />
+                <button class="secondary" type="submit">新增组</button>
+              </form>
+              <form method="post" action="{{ url_for('manage_preset_group') }}" class="inline" style="gap:6px;">
+                <select name="group_id" required>
+                  <option value="">选择要重命名的组</option>
+                  {% for group in preset_groups %}
+                    {% if group.id != 'system' %}
+                      <option value="{{ group.id }}">{{ group.name }}</option>
+                    {% endif %}
+                  {% endfor %}
+                </select>
+                <input name="group_name" placeholder="新名称" required />
+                <input type="hidden" name="action" value="rename" />
+                <button class="secondary" type="submit">重命名组</button>
+              </form>
+              <form method="post" action="{{ url_for('manage_preset_group') }}" class="inline" style="gap:6px;">
+                <select name="group_id" required>
+                  <option value="">选择要删除的组</option>
+                  {% for group in preset_groups %}
+                    {% if group.id != 'system' %}
+                      <option value="{{ group.id }}">{{ group.name }}</option>
+                    {% endif %}
+                  {% endfor %}
+                </select>
+                <input type="hidden" name="action" value="delete" />
+                <button class="secondary" type="submit">删除组</button>
+              </form>
+              <form method="post" action="{{ url_for('manage_preset_group') }}" class="form-grid">
+                <select name="group_id" required>
+                  <option value="">选择要调整的组</option>
+                  {% for group in preset_groups %}
+                    {% if group.id != 'system' %}
+                      <option value="{{ group.id }}">{{ group.name }}</option>
+                    {% endif %}
+                  {% endfor %}
+                </select>
+                <div class="check-grid">
+                  {% for key, preset in styles.items() %}
+                    <label><input type="checkbox" name="preset_keys" value="{{ key }}"> {{ preset.name }}｜{{ key }}</label>
+                  {% endfor %}
+                </div>
+                <input type="hidden" name="action" value="assign" />
+                <button class="secondary" type="submit">应用勾选预设到组</button>
+              </form>
+            </div>
+          </details>
         </div>
-      {% endif %}
+
+        <div class="info-card" id="manuals">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <h3 style="margin:0;">说明书库</h3>
+            <span class="chip">{{ manual_entries|length }} 条</span>
+          </div>
+          <div class="muted">折叠面板中上传、批量导入、重命名或删除说明书与分组。</div>
+          <details open>
+            <summary>上传/批量导入</summary>
+            <div class="form-grid" style="margin-top:6px;">
+              <form method="post" action="{{ url_for('upload_manual') }}" enctype="multipart/form-data" class="form-grid">
+                <input name="manual_title" placeholder="标题" required />
+                <input name="manual_kind" placeholder="所属分组（不存在将自动新建）" required />
+                <input type="file" name="manual_pdf" accept="application/pdf" required />
+                <button class="secondary" type="submit">上传 PDF</button>
+              </form>
+              <form method="post" action="{{ url_for('upload_manual_batch') }}" enctype="multipart/form-data" class="form-grid">
+                <input name="manual_kind" placeholder="批量分组（不存在将自动新建）" required />
+                <input type="file" name="manual_pdfs" accept="application/pdf" multiple />
+                <div class="muted">可一次选择多个 PDF，逐个入库。</div>
+                <button class="secondary" type="submit">批量上传并入库</button>
+              </form>
+            </div>
+          </details>
+          <details>
+            <summary>管理分组</summary>
+            <div class="form-grid" style="margin-top:6px;">
+              <form method="post" action="{{ url_for('manage_manual_group') }}" class="inline" style="gap:6px;">
+                <input name="group_name" placeholder="新增说明书组名称" required />
+                <input type="hidden" name="action" value="add" />
+                <button class="secondary" type="submit">新增组</button>
+              </form>
+              <form method="post" action="{{ url_for('manage_manual_group') }}" class="inline" style="gap:6px;">
+                <select name="group_old" required>
+                  <option value="">选择要重命名的组</option>
+                  {% for name in manual_group_names %}
+                    <option value="{{ name }}">{{ name }}</option>
+                  {% endfor %}
+                </select>
+                <input name="group_new" placeholder="新名称" required />
+                <input type="hidden" name="action" value="rename" />
+                <button class="secondary" type="submit">重命名组</button>
+              </form>
+              <form method="post" action="{{ url_for('manage_manual_group') }}" class="inline" style="gap:6px;">
+                <select name="group_name" required>
+                  <option value="">选择要删除的组</option>
+                  {% for name in manual_group_names %}
+                    <option value="{{ name }}">{{ name }}</option>
+                  {% endfor %}
+                </select>
+                <input type="hidden" name="action" value="delete" />
+                <button class="secondary" type="submit">删除组</button>
+              </form>
+            </div>
+          </details>
+          <details>
+            <summary>编辑/删除说明书</summary>
+            <div class="form-grid" style="margin-top:6px;">
+              <form method="post" action="{{ url_for('update_manual') }}" class="form-grid">
+                <select name="manual_select" required>
+                  <option value="">选择说明书以重命名/移动分组</option>
+                  {% for item in manual_entries %}
+                    <option value="{{ item.id }}||{{ item.dataset }}">{{ item.title }}｜组：{{ item.kind }}｜源：{{ item.dataset }} </option>
+                  {% endfor %}
+                </select>
+                <input name="manual_title" placeholder="新标题" required />
+                <input name="manual_kind" placeholder="分组名称（不存在将新建）" required />
+                <button class="secondary" type="submit">保存说明书修改</button>
+              </form>
+              <form method="post" action="{{ url_for('delete_manual') }}" class="inline" style="gap:6px;">
+                <select name="manual_select" required>
+                  <option value="">选择要删除的说明书</option>
+                  {% for item in manual_entries %}
+                    <option value="{{ item.id }}||{{ item.dataset }}">{{ item.title }}（{{ item.kind }}）</option>
+                  {% endfor %}
+                </select>
+                <button class="secondary" type="submit">删除说明书</button>
+              </form>
+            </div>
+          </details>
+        </div>
+
+        <div class="info-card" id="api">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <h3 style="margin:0;">API 快速参考</h3>
+            <span class="chip">兼容 Base</span>
+          </div>
+          <div class="badge-row">{% for base in default_bases %}<span class="chip">{{ base }}</span>{% endfor %}</div>
+          <div class="muted">模型示例</div>
+          <div class="form-grid">
+            {% for item in model_profiles %}
+              <div class="history-card">
+                <div><strong>{{ item.name }}</strong> ｜ {{ item.base }}</div>
+                <div class="muted">{{ item.models|join(', ') }}</div>
+              </div>
+            {% endfor %}
+          </div>
+          <form method="post" action="{{ url_for('save_api_settings') }}" class="form-grid">
+            <input name="base_custom" placeholder="API Base" value="{{ settings.base_url or '' }}" />
+            <input name="model" placeholder="模型" value="{{ settings.model or '' }}" />
+            <input name="api_key" type="password" placeholder="API Key" value="{{ settings.api_key or '' }}" />
+            <button class="secondary" type="submit">保存 API 信息</button>
+          </form>
+        </div>
+      </div>
     </div>
   </body>
 </html>
 """
-
     return render_template_string(
         template,
         data_dir=DATA_DIR,
         styles=styles,
         settings=settings,
-        history=history,
         reply=reply,
         message=message,
         preset_groups=preset_groups,
