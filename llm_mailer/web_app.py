@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import uuid
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -16,12 +16,13 @@ from .history import append_history, mask_api_key, new_entry
 from .ingestion import append_manual_from_pdf
 from .knowledge_base import KnowledgeBase
 from .styles import (
+    PresetEntry,
     StylePreset,
-    combine_presets,
-    default_style_presets,
+    combine_entries,
+    delete_preset_entry,
     load_custom_presets,
-    merged_presets,
-    save_custom_preset,
+    save_custom_presets,
+    upsert_preset_entry,
 )
 
 
@@ -58,7 +59,6 @@ class ChatSession:
     id: str
     title: str
     messages: List[ChatMessage]
-    style_keys: List[str]
     preset_group_ids: List[str]
     manual_kinds: List[str]
 
@@ -93,7 +93,6 @@ def _load_chats(data_dir: Path) -> List[ChatSession]:
                 id=item.get("id", ""),
                 title=item.get("title", "未命名对话"),
                 messages=messages,
-                style_keys=item.get("style_keys") or ["concise_business"],
                 preset_group_ids=item.get("preset_group_ids") or [],
                 manual_kinds=item.get("manual_kinds") or [],
             )
@@ -111,7 +110,6 @@ def _save_chats(data_dir: Path, sessions: List[ChatSession]) -> None:
                 "id": session.id,
                 "title": session.title,
                 "messages": [asdict(m) for m in session.messages],
-                "style_keys": session.style_keys,
                 "preset_group_ids": session.preset_group_ids,
                 "manual_kinds": session.manual_kinds,
             }
@@ -124,7 +122,6 @@ def _default_chat() -> ChatSession:
         id=uuid.uuid4().hex[:8],
         title="默认对话",
         messages=[],
-        style_keys=["concise_business"],
         preset_group_ids=[],
         manual_kinds=[],
     )
@@ -162,37 +159,50 @@ def _save_preset_groups(data_dir: Path, groups: List[Dict[str, object]]) -> None
     path.write_text(json.dumps(groups, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def _sync_preset_groups(data_dir: Path, custom_presets: Dict[str, StylePreset]) -> List[Dict[str, object]]:
+def _sync_preset_groups(data_dir: Path, custom_presets: Dict[str, PresetEntry]) -> List[Dict[str, object]]:
     groups = _load_preset_groups(data_dir)
     fallback_id = "ungrouped"
     fallback_name = "未分组预设"
 
-    if not groups:
-        groups = [{"id": fallback_id, "name": fallback_name, "preset_keys": list(custom_presets.keys())}]
-    else:
-        if not any(group.get("id") == fallback_id for group in groups):
-            groups.insert(0, {"id": fallback_id, "name": fallback_name, "preset_keys": []})
-
-    assigned = set()
+    normalized: List[Dict[str, object]] = []
+    seen = set()
     for group in groups:
-        keep: List[str] = []
-        for key in group.get("preset_keys", []):
-            if key in custom_presets:
-                keep.append(key)
-                assigned.add(key)
-        group["preset_keys"] = keep
+        gid = group.get("id") or uuid.uuid4().hex[:8]
+        name = group.get("name") or "未命名组"
+        if gid in seen:
+            gid = uuid.uuid4().hex[:8]
+        seen.add(gid)
+        normalized.append({"id": gid, "name": name})
 
-    for key in custom_presets:
-        if key not in assigned:
-            target = next(g for g in groups if g["id"] == fallback_id)
-            target.setdefault("preset_keys", []).append(key)
+    if not any(g.get("id") == fallback_id for g in normalized):
+        normalized.insert(0, {"id": fallback_id, "name": fallback_name})
 
-    _save_preset_groups(data_dir, groups)
-    defaults = default_style_presets()
+    available_group_ids = {g["id"] for g in normalized}
+    presets_changed = False
+    updated_presets: Dict[str, PresetEntry] = {}
+    for entry in custom_presets.values():
+        target_group = entry.group_id if entry.group_id in available_group_ids else fallback_id
+        if target_group != entry.group_id:
+            presets_changed = True
+            updated_presets[entry.id] = replace(entry, group_id=target_group)
+        else:
+            updated_presets[entry.id] = entry
+
+    if presets_changed:
+        from .styles import save_custom_presets
+
+        save_custom_presets(data_dir, updated_presets)
+        custom_presets = updated_presets
+
+    _save_preset_groups(data_dir, normalized)
+
     merged = []
-    merged.append({"id": "system", "name": "系统预设组", "presets": [{"key": k, "name": v.name} for k, v in defaults.items()]})
-    for group in groups:
-        presets = [{"key": key, "name": custom_presets[key].name} for key in group.get("preset_keys", []) if key in custom_presets]
+    for group in normalized:
+        presets = [
+            {"id": entry.id, "name": entry.name}
+            for entry in custom_presets.values()
+            if entry.group_id == group.get("id")
+        ]
         merged.append({"id": group.get("id"), "name": group.get("name", "未命名组"), "presets": presets})
     return merged
 
@@ -260,10 +270,9 @@ def _manual_groups(data_dir: Path) -> Dict[str, List[str]]:
 
 
 def _build_chat_reply(
-    session: ChatSession, user_message: str, style_keys: List[str], settings: Settings, manual_kinds: List[str]
+    session: ChatSession, user_message: str, style_entries: List[PresetEntry], settings: Settings, manual_kinds: List[str]
 ) -> str:
-    style_presets = merged_presets(DATA_DIR)
-    style = combine_presets(style_presets, style_keys)
+    style = combine_entries(style_entries)
 
     kb = KnowledgeBase.from_json_files([DATA_DIR / "manuals.json", DATA_DIR / "cases.json"])
     docs = kb.documents
@@ -291,27 +300,6 @@ def _build_chat_reply(
 """
     provider = get_provider(settings)
     return provider.generate(prompt)
-
-
-def _delete_custom_preset(data_dir: Path, key: str) -> bool:
-    presets = load_custom_presets(data_dir)
-    if key not in presets:
-        return False
-
-    presets_path = data_dir / "presets.json"
-    remaining = {k: vars(v) for k, v in presets.items() if k != key}
-    presets_path.write_text(json.dumps(remaining, ensure_ascii=False, indent=2), encoding="utf-8")
-
-    groups = _load_preset_groups(data_dir)
-    changed = False
-    for group in groups:
-        before = list(group.get("preset_keys", []))
-        group["preset_keys"] = [k for k in before if k != key]
-        if before != group["preset_keys"]:
-            changed = True
-    if changed:
-        _save_preset_groups(data_dir, groups)
-    return True
 
 
 def _update_manual_entry(data_dir: Path, entry_id: str, dataset: str, title: str, kind: str) -> bool:
@@ -394,12 +382,10 @@ def _delete_manual_group(data_dir: Path, target: str) -> None:
 def _render(
     reply: str | None = None,
     message: str | None = None,
-    selected_styles: list[str] | None = None,
     chat_id: str | None = None,
     selected_manual_groups: list[str] | None = None,
     selected_preset_groups: list[str] | None = None,
 ):
-    styles = merged_presets(DATA_DIR)
     custom_presets = load_custom_presets(DATA_DIR)
     settings = load_saved_settings(DATA_DIR)
     sessions, active = _ensure_sessions(DATA_DIR, chat_id)
@@ -408,7 +394,6 @@ def _render(
     manual_groups = _manual_groups(DATA_DIR)
     manual_group_names = list(manual_groups.keys())
 
-    selected_styles = selected_styles or active.style_keys or ["concise_business"]
     selected_manual_groups = selected_manual_groups or active.manual_kinds
     selected_preset_groups = selected_preset_groups or active.preset_group_ids
 
@@ -482,6 +467,9 @@ def _render(
       .check-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 6px; }
       details { border: 1px solid var(--border); border-radius: 10px; padding: 8px; background: rgba(255,255,255,0.03); }
       summary { cursor: pointer; font-weight: 700; }
+      details.modal-card { border-style: dashed; background: rgba(255,255,255,0.02); }
+      details.modal-card[open] { box-shadow: 0 12px 26px rgba(0,0,0,0.28); border-color: var(--accent); }
+      details.modal-card .modal-body { margin-top: 6px; display: grid; gap: 6px; }
       .flash { padding: 10px; border-radius: 10px; background: rgba(248,113,113,0.12); border: 1px solid rgba(248,113,113,0.35); }
     </style>
   </head>
@@ -615,20 +603,20 @@ def _render(
         </div>
       </aside>
 
-      <section class="chat-shell">
-        <div class="chat-header">
-          <div>
-            <h3>{{ active.title }}</h3>
-            <div class="muted">聊天内容居中展示，底部输入发送。</div>
+        <section class="chat-shell">
+          <div class="chat-header">
+            <div>
+              <h3>{{ active.title }}</h3>
+              <div class="muted">聊天内容居中展示，底部输入发送。</div>
+            </div>
+            <div class="tag-row">
+              {% for gid in selected_preset_groups %}
+                {% set group = (preset_groups | selectattr('id', 'equalto', gid) | list | first) %}
+                {% if group %}<span class="chip">{{ group.name }}<small>预设组</small></span>{% endif %}
+              {% endfor %}
+              {% for name in selected_manual_groups %}<span class="chip">{{ name }}</span>{% endfor %}
+            </div>
           </div>
-          <div class="tag-row">
-            {% for key in selected_styles %}
-              {% set preset = styles.get(key) %}
-              {% if preset %}<span class="chip">{{ preset.name }}<small>{{ key }}</small></span>{% endif %}
-            {% endfor %}
-            {% for name in selected_manual_groups %}<span class="chip">{{ name }}</span>{% endfor %}
-          </div>
-        </div>
 
         <div class="chat-window">
           {% if not active.messages %}<div class="muted">暂无消息，先选好预设与说明书后发送吧。</div>{% endif %}
@@ -644,14 +632,6 @@ def _render(
               <label class="chip-check">
                 <input type="checkbox" name="preset_group_ids" value="{{ group.id }}" {% if group.id in selected_preset_groups %}checked{% endif %}>
                 <span>{{ group.name }}<small>组</small></span>
-              </label>
-            {% endfor %}
-          </div>
-          <div class="tag-row">
-            {% for key, preset in styles.items() %}
-              <label class="chip-check">
-                <input type="checkbox" name="style_keys" value="{{ key }}" {% if key in selected_styles %}checked{% endif %}>
-                <span>{{ preset.name }}<small>{{ key }}</small></span>
               </label>
             {% endfor %}
           </div>
@@ -674,34 +654,52 @@ def _render(
       <section class="preset-panel">
         <div style="display:flex;justify-content:space-between;align-items:center;">
           <h3>预设管理</h3>
-          <span class="chip">{{ styles|length }} 条</span>
+          <span class="chip">{{ preset_entries|length }} 条</span>
         </div>
-        <div class="muted">预设条目仅保留名称与内容，更直观可编辑。</div>
-        <form method="post" action="{{ url_for('save_preset') }}" class="form-grid">
-          <input name="preset_key" placeholder="唯一 Key" required />
-          <input name="preset_name" placeholder="名称" required />
-          <textarea name="preset_content" placeholder="内容说明（会直接作为风格提示插入）" required></textarea>
-          <input name="preset_group" placeholder="可选：归属分组" />
-          <button class="secondary" type="submit">保存/更新预设</button>
-        </form>
-        <form method="post" action="{{ url_for('delete_preset') }}" class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px,1fr));">
-          <input name="preset_key" placeholder="删除预设 Key" required />
-          <button class="secondary" type="submit">删除</button>
-        </form>
-        <details>
+        <div class="muted">条目只能归属于预设组，聊天时仅勾选分组即可使用其中全部条目。</div>
+        <details class="modal-card" open>
+          <summary>新增 / 编辑预设条目</summary>
+          <div class="modal-body">
+            <form method="post" action="{{ url_for('save_preset') }}" class="form-grid">
+              <select name="entry_id">
+                <option value="">新建条目</option>
+                {% for entry in preset_entries %}<option value="{{ entry.id }}">{{ entry.name }}｜{{ entry.group_id }}</option>{% endfor %}
+              </select>
+              <input name="preset_name" placeholder="名称" required />
+              <textarea name="preset_content" placeholder="内容说明（会直接作为风格提示插入）" required></textarea>
+              <select name="preset_group_id">
+                <option value="">选择分组</option>
+                {% for group in preset_groups %}<option value="{{ group.id }}">{{ group.name }}</option>{% endfor %}
+              </select>
+              <input name="preset_group_new" placeholder="或输入新组名称" />
+              <button class="secondary" type="submit">保存 / 更新</button>
+            </form>
+          </div>
+        </details>
+        <details class="modal-card">
+          <summary>删除预设条目</summary>
+          <div class="modal-body">
+            <form method="post" action="{{ url_for('delete_preset') }}" class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(220px,1fr));">
+              <select name="entry_id" required>
+                <option value="">选择要删除的条目</option>
+                {% for entry in preset_entries %}<option value="{{ entry.id }}">{{ entry.name }}｜{{ entry.group_id }}</option>{% endfor %}
+              </select>
+              <button class="secondary" type="submit">删除条目</button>
+            </form>
+          </div>
+        </details>
+        <details class="modal-card">
           <summary>管理预设组</summary>
-          <div class="form-grid" style="margin-top:6px;">
+          <div class="modal-body">
             <form method="post" action="{{ url_for('manage_preset_group') }}" class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px,1fr));">
               <input name="group_name" placeholder="新增组名" required />
               <input type="hidden" name="action" value="add" />
-              <button class="secondary" type="submit">新增</button>
+              <button class="secondary" type="submit">新增组</button>
             </form>
             <form method="post" action="{{ url_for('manage_preset_group') }}" class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px,1fr));">
               <select name="group_id" required>
                 <option value="">选择组</option>
-                {% for group in preset_groups %}
-                  {% if group.id != 'system' %}<option value="{{ group.id }}">{{ group.name }}</option>{% endif %}
-                {% endfor %}
+                {% for group in preset_groups %}<option value="{{ group.id }}">{{ group.name }}</option>{% endfor %}
               </select>
               <input name="group_name" placeholder="新名称" required />
               <input type="hidden" name="action" value="rename" />
@@ -711,26 +709,11 @@ def _render(
               <select name="group_id" required>
                 <option value="">选择要删除的组</option>
                 {% for group in preset_groups %}
-                  {% if group.id != 'system' %}<option value="{{ group.id }}">{{ group.name }}</option>{% endif %}
+                  {% if group.id != 'ungrouped' %}<option value="{{ group.id }}">{{ group.name }}</option>{% endif %}
                 {% endfor %}
               </select>
               <input type="hidden" name="action" value="delete" />
-              <button class="secondary" type="submit">删除</button>
-            </form>
-            <form method="post" action="{{ url_for('manage_preset_group') }}" class="form-grid">
-              <select name="group_id" required>
-                <option value="">选择要调整的组</option>
-                {% for group in preset_groups %}
-                  {% if group.id != 'system' %}<option value="{{ group.id }}">{{ group.name }}</option>{% endif %}
-                {% endfor %}
-              </select>
-              <div class="check-grid">
-                {% for key, preset in styles.items() %}
-                  <label><input type="checkbox" name="preset_keys" value="{{ key }}"> {{ preset.name }}｜{{ key }}</label>
-                {% endfor %}
-              </div>
-              <input type="hidden" name="action" value="assign" />
-              <button class="secondary" type="submit">将勾选预设放入组</button>
+              <button class="secondary" type="submit">删除组</button>
             </form>
           </div>
         </details>
@@ -744,11 +727,11 @@ def _render(
     return render_template_string(
         template,
         data_dir=DATA_DIR,
-        styles=styles,
         settings=settings,
         reply=reply,
         message=message,
         preset_groups=preset_groups,
+        preset_entries=list(custom_presets.values()),
         manual_groups=manual_groups,
         manual_entries=manual_entries,
         manual_group_names=manual_group_names,
@@ -757,7 +740,6 @@ def _render(
         model_profiles=MODEL_PROFILES,
         sessions=sessions,
         active=active,
-        selected_styles=selected_styles,
         selected_manual_groups=selected_manual_groups,
         selected_preset_groups=selected_preset_groups,
         last_message="",
@@ -778,7 +760,6 @@ def new_chat():
         id=uuid.uuid4().hex[:8],
         title=title or f"会话 {len(sessions)+1}",
         messages=[],
-        style_keys=["concise_business"],
         preset_group_ids=[],
         manual_kinds=[],
     )
@@ -812,29 +793,20 @@ def send_message():
         return redirect(url_for("index"))
 
     chat_id = request.form.get("chat_id")
-    style_keys = request.form.getlist("style_keys")
     preset_group_ids = request.form.getlist("preset_group_ids")
     manual_groups = request.form.getlist("manual_groups")
     settings = _settings_from_form(request.form)
 
     sessions, active = _ensure_sessions(DATA_DIR, chat_id)
-    if not style_keys and preset_group_ids:
-        # 自动汇总所选组下的预设
-        groups = _sync_preset_groups(DATA_DIR, load_custom_presets(DATA_DIR))
-        found = []
-        for group in groups:
-            if group.get("id") in set(preset_group_ids):
-                found.extend([p.get("key") for p in group.get("presets", [])])
-        style_keys = found
-    style_keys = style_keys or ["concise_business"]
-
-    active.style_keys = style_keys
     active.manual_kinds = manual_groups
     active.preset_group_ids = preset_group_ids
     active.messages.append(ChatMessage(role="user", content=user_message))
 
+    custom_presets = load_custom_presets(DATA_DIR)
+    chosen_entries = [entry for entry in custom_presets.values() if entry.group_id in set(preset_group_ids)]
+
     try:
-        reply = _build_chat_reply(active, user_message, style_keys, settings, manual_groups)
+        reply = _build_chat_reply(active, user_message, chosen_entries, settings, manual_groups)
     except Exception as exc:  # noqa: BLE001
         _save_chats(DATA_DIR, sessions)
         append_history(
@@ -844,14 +816,13 @@ def send_message():
                 {
                     "chat_id": active.id,
                     "message": user_message,
-                    "style_keys": style_keys,
+                    "preset_groups": preset_group_ids,
                     "error": str(exc),
                 },
             ),
         )
         flash(f"回复生成失败：{exc}")
         return _render(
-            selected_styles=style_keys,
             chat_id=active.id,
             selected_manual_groups=manual_groups,
             selected_preset_groups=preset_group_ids,
@@ -867,7 +838,7 @@ def send_message():
             {
                 "chat_id": active.id,
                 "message": user_message,
-                "style_keys": style_keys,
+                "preset_groups": preset_group_ids,
                 "manual_groups": manual_groups,
                 "preset_group_ids": preset_group_ids,
                 "settings": {
@@ -879,27 +850,23 @@ def send_message():
             },
         ),
     )
-    return _render(reply=reply, selected_styles=style_keys, chat_id=active.id)
+    return _render(reply=reply, chat_id=active.id)
 
 
 @app.route("/preset/delete", methods=["POST"])
 def delete_preset():
-    key = (request.form.get("preset_key") or "").strip()
-    if not key:
-        flash("请填写要删除的预设 Key。")
+    entry_id = (request.form.get("entry_id") or "").strip()
+    if not entry_id:
+        flash("请选择要删除的预设条目。")
         return redirect(url_for("index"))
 
-    if key in default_style_presets():
-        flash("系统预设不可删除。")
-        return redirect(url_for("index"))
-
-    if not _delete_custom_preset(DATA_DIR, key):
-        flash("未找到该自定义预设。")
+    if not delete_preset_entry(DATA_DIR, entry_id):
+        flash("未找到对应的预设条目。")
         return redirect(url_for("index"))
 
     _sync_preset_groups(DATA_DIR, load_custom_presets(DATA_DIR))
-    message = f"已删除预设：{key}"
-    append_history(DATA_DIR, new_entry("preset_deleted", {"key": key}))
+    message = "已删除预设条目"
+    append_history(DATA_DIR, new_entry("preset_deleted", {"id": entry_id}))
     return _render(message=message)
 
 
@@ -907,11 +874,10 @@ def delete_preset():
 def manage_preset_group():
     action = request.form.get("action") or ""
     groups = _load_preset_groups(DATA_DIR)
-    fallback_id = "ungrouped"
-    fallback = next((g for g in groups if g.get("id") == fallback_id), None)
-    if not fallback:
-        fallback = {"id": fallback_id, "name": "未分组预设", "preset_keys": []}
-        groups.insert(0, fallback)
+    if not any(g.get("id") == "ungrouped" for g in groups):
+        groups.insert(0, {"id": "ungrouped", "name": "未分组预设"})
+
+    presets = load_custom_presets(DATA_DIR)
 
     if action == "add":
         name = (request.form.get("group_name") or "").strip()
@@ -921,7 +887,7 @@ def manage_preset_group():
         if any(g.get("name") == name for g in groups):
             flash("已存在同名预设组。")
             return redirect(url_for("index"))
-        groups.append({"id": uuid.uuid4().hex[:8], "name": name, "preset_keys": []})
+        groups.append({"id": uuid.uuid4().hex[:8], "name": name})
         message = f"已新增预设组：{name}"
     elif action == "rename":
         group_id = request.form.get("group_id") or ""
@@ -934,16 +900,27 @@ def manage_preset_group():
         message = f"已重命名预设组：{target['name']}"
     elif action == "delete":
         group_id = request.form.get("group_id") or ""
-        if group_id in {"system", fallback_id}:
-            flash("系统或未分组不可删除。")
+        if group_id == "ungrouped":
+            flash("未分组不可删除。")
             return redirect(url_for("index"))
         target = next((g for g in groups if g.get("id") == group_id), None)
         if not target:
             flash("未找到要删除的预设组。")
             return redirect(url_for("index"))
-        fallback["preset_keys"].extend(target.get("preset_keys", []))
+
+        updated_presets = {}
+        changed = False
+        for entry in presets.values():
+            if entry.group_id == group_id:
+                changed = True
+                updated_presets[entry.id] = replace(entry, group_id="ungrouped")
+            else:
+                updated_presets[entry.id] = entry
+        if changed:
+            save_custom_presets(DATA_DIR, updated_presets)
+
         groups = [g for g in groups if g.get("id") != group_id]
-        message = "已删除预设组并保留其中预设到未分组"
+        message = "已删除预设组，条目已移动到未分组"
     else:
         flash("未知操作。")
         return redirect(url_for("index"))
@@ -955,48 +932,45 @@ def manage_preset_group():
 
 @app.route("/preset", methods=["POST"])
 def save_preset():
-    key = (request.form.get("preset_key") or "").strip()
-    if not key:
-        flash("请填写预设 Key。")
-        return redirect(url_for("index"))
-
+    entry_id = (request.form.get("entry_id") or "").strip() or uuid.uuid4().hex[:8]
     name = (request.form.get("preset_name") or "").strip()
     content = (request.form.get("preset_content") or "").strip()
-    group_name = (request.form.get("preset_group") or "").strip()
+    group_id = (request.form.get("preset_group_id") or "").strip()
+    group_new = (request.form.get("preset_group_new") or "").strip()
 
-    if not all([name, content]):
+    if not name or not content:
         flash("请填写名称和内容。")
         return redirect(url_for("index"))
 
-    preset = StylePreset(
-        name=name,
-        content=content,
-    )
+    groups = _load_preset_groups(DATA_DIR)
+    if not any(g.get("id") == "ungrouped" for g in groups):
+        groups.insert(0, {"id": "ungrouped", "name": "未分组预设"})
 
-    save_custom_preset(DATA_DIR, key, preset)
-    if group_name:
-        groups = _load_preset_groups(DATA_DIR)
-        fallback_id = "ungrouped"
-        if not any(g.get("id") == fallback_id for g in groups):
-            groups.insert(0, {"id": fallback_id, "name": "未分组预设", "preset_keys": []})
-        target = next((g for g in groups if g.get("name") == group_name), None)
-        if not target:
-            target = {"id": uuid.uuid4().hex[:8], "name": group_name, "preset_keys": []}
-            groups.append(target)
-        for group in groups:
-            group["preset_keys"] = [k for k in group.get("preset_keys", []) if k != key]
-        target.setdefault("preset_keys", []).append(key)
-        _save_preset_groups(DATA_DIR, groups)
+    if group_new:
+        group_id = uuid.uuid4().hex[:8]
+        groups.append({"id": group_id, "name": group_new})
+    group_id = group_id or "ungrouped"
+
+    upsert_preset_entry(
+        DATA_DIR,
+        PresetEntry(
+            id=entry_id,
+            name=name,
+            content=content,
+            group_id=group_id,
+        ),
+    )
+    _save_preset_groups(DATA_DIR, groups)
     _sync_preset_groups(DATA_DIR, load_custom_presets(DATA_DIR))
-    message = f"已保存预设：{key}（{name}），在上方列表可直接选择/组合。"
+    message = f"已保存预设条目：{name}"
     append_history(
         DATA_DIR,
         new_entry(
             "preset_saved",
-            {"key": key, "name": name},
+            {"id": entry_id, "name": name, "group_id": group_id},
         ),
     )
-    return _render(message=message, selected_styles=[key])
+    return _render(message=message, chat_id=request.form.get("chat_id"))
 
 
 @app.route("/manual/upload", methods=["POST"])
