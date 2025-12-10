@@ -26,16 +26,12 @@ class PromptBuilder:
         ref_lines = [_fmt_ref(doc) for doc in references]
         refs = "\n".join(ref_lines) if ref_lines else "- （未命中，需基于通用知识回答）"
 
-        structure_lines = "\n".join(f"- {item}" for item in self.style.structure)
-        reminder_lines = "\n".join(f"- {item}" for item in self.style.reminders)
         attachments = ", ".join(context.attachments or []) or "无"
 
         return f"""
 你是一名邮件助理，负责产出高质量的中文邮件。请遵循以下要求：
-- 语气：{self.style.tone}
-- 结构：\n{structure_lines}
-- 结尾：{self.style.closing}
-- 提醒：\n{reminder_lines}
+- 参考风格：{self.style.name}
+- 写作提示：{self.style.content}
 
 用户邮件摘要：{context.email_summary}
 客户优先级：{context.customer_priority or '未标注'}
