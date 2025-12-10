@@ -200,8 +200,6 @@ def _sync_preset_groups(data_dir: Path, custom_presets: Dict[str, PresetEntry]) 
         custom_presets = updated_presets
 
     _save_preset_groups(data_dir, normalized)
-
-    _save_preset_groups(data_dir, normalized)
     return normalized
 
 
