@@ -1066,10 +1066,54 @@ def save_preset():
     return _render(message=message, selected_styles=[key])
 
 
-@app.route("/upload", methods=["POST"])
-def upload():
+@app.route("/manual/upload", methods=["POST"])
+def upload_manual():
+    file = request.files.get("manual_pdf")
+    title = (request.form.get("manual_title") or "").strip()
+    kind = (request.form.get("manual_kind") or "").strip() or "manual"
+
+    if not file or not file.filename:
+        flash("请选择要上传的 PDF 文件。")
+        return redirect(url_for("index"))
+
+    filename = secure_filename(file.filename)
+    if not filename.lower().endswith(".pdf"):
+        flash("仅支持上传 PDF 文件。")
+        return redirect(url_for("index"))
+
+    uploads_dir = DATA_DIR / "manual_uploads"
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+
+    save_path = uploads_dir / filename
+    file.save(save_path)
+    entry = append_manual_from_pdf(save_path, DATA_DIR, kind=kind, title=title or None)
+    message = f"已入库：{entry['title']}（组：{entry['kind']}）"
+    append_history(
+        DATA_DIR,
+        new_entry(
+            "manual_upload",
+            {
+                "filename": filename,
+                "title": entry["title"],
+                "source": str(save_path),
+                "kind": entry["kind"],
+            },
+        ),
+    )
+
+    names = _load_manual_group_names(DATA_DIR)
+    if kind not in names:
+        names.append(kind)
+        _save_manual_group_names(DATA_DIR, names)
+
+    return _render(message=message)
+
+
+@app.route("/manual/upload/batch", methods=["POST"])
+def upload_manual_batch():
     files = request.files.getlist("manual_pdfs")
     files = [f for f in files if f and f.filename]
+    kind = (request.form.get("manual_kind") or "").strip() or "manual"
     if not files:
         flash("请选择要上传的 PDF 文件。")
         return redirect(url_for("index"))
@@ -1086,19 +1130,29 @@ def upload():
 
         save_path = uploads_dir / filename
         file.save(save_path)
-        entry = append_manual_from_pdf(save_path, DATA_DIR)
-        messages.append(f"已入库：{entry['title']}（{filename}）")
+        entry = append_manual_from_pdf(save_path, DATA_DIR, kind=kind)
+        messages.append(f"已入库：{entry['title']}（{filename}，组：{kind}）")
         append_history(
             DATA_DIR,
             new_entry(
                 "manual_upload",
-                {"filename": filename, "title": entry["title"], "source": str(save_path)},
+                {
+                    "filename": filename,
+                    "title": entry["title"],
+                    "source": str(save_path),
+                    "kind": entry["kind"],
+                },
             ),
         )
 
     if not messages:
         flash("未处理任何文件，请确认格式。")
         return redirect(url_for("index"))
+
+    names = _load_manual_group_names(DATA_DIR)
+    if kind not in names:
+        names.append(kind)
+        _save_manual_group_names(DATA_DIR, names)
 
     return _render(message="；".join(messages))
 
