@@ -1,0 +1,55 @@
+[
+  {
+    "action": "chat_message",
+    "detail": {
+      "chat_id": "d7e3cd82",
+      "message": "1232",
+      "style_keys": [
+        "concise_business"
+      ],
+      "settings": {
+        "base_url": "https://api.deepseek.com",
+        "model": "deepseek-chat",
+        "api_key": "sk-...1d"
+      },
+      "reply_preview": "【示例回复（本地模板，无需真实 API）】\n模型：deepseek-chat；API：https://api.deepseek.com\n\n\n你是一名邮件沟通助手，以对话模式回答并保持友好、清晰的表达。\n当前风格：简洁商务\n语气：语气专业、清晰、直入主题。\n结构参考：致谢或礼貌问候 | 核心回复要点分段罗列 | 下一步行动与时间预期\n结尾参考：感谢您的配合，期待您的确认。\n提醒：避免长句，突出可执行"
+    },
+    "timestamp": "2025-12-10T11:39:51.383204Z"
+  },
+  {
+    "action": "manual_upload",
+    "detail": {
+      "filename": "05.Heavy-duty_and_Explosion_proof_Signalings_en_240418.pdf",
+      "title": "05.Heavy-duty_and_Explosion_proof_Signalings_en_240418",
+      "source": "data\\manual_uploads\\05.Heavy-duty_and_Explosion_proof_Signalings_en_240418.pdf"
+    },
+    "timestamp": "2025-12-10T11:36:27.175446Z"
+  },
+  {
+    "action": "manual_upload",
+    "detail": {
+      "filename": "04.Signal_Beacons_and_Sounders_en_2024.pdf",
+      "title": "04.Signal_Beacons_and_Sounders_en_2024",
+      "source": "data\\manual_uploads\\04.Signal_Beacons_and_Sounders_en_2024.pdf"
+    },
+    "timestamp": "2025-12-10T11:35:37.560684Z"
+  },
+  {
+    "action": "manual_upload",
+    "detail": {
+      "filename": "04.Signal_Beacons_and_Sounders_en_2024.pdf",
+      "title": "04.Signal_Beacons_and_Sounders_en_2024",
+      "source": "data\\manual_uploads\\04.Signal_Beacons_and_Sounders_en_2024.pdf"
+    },
+    "timestamp": "2025-12-10T11:33:27.024786Z"
+  },
+  {
+    "action": "api_saved",
+    "detail": {
+      "base_url": "https://api.deepseek.com",
+      "model": "deepseek-chat",
+      "api_key": "sk-...1d"
+    },
+    "timestamp": "2025-12-10T11:32:28.296091Z"
+  }
+]
