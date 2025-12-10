@@ -402,6 +402,9 @@ def _render(
     selected_preset_groups: list[str] | None = None,
 ):
     custom_presets = load_custom_presets(DATA_DIR)
+    entries_by_group: dict[str, list[PresetEntry]] = {}
+    for entry in custom_presets.values():
+        entries_by_group.setdefault(entry.group_id, []).append(entry)
     settings = load_saved_settings(DATA_DIR)
     sessions, active = _ensure_sessions(DATA_DIR, chat_id)
     preset_groups = _sync_preset_groups(DATA_DIR, custom_presets)
@@ -478,6 +481,14 @@ def _render(
       button.primary { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #0b0f1a; }
       button.secondary { background: rgba(255,255,255,0.08); }
       .preset-panel { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px; display: grid; gap: 10px; }
+      .preset-list { display: grid; gap: 10px; }
+      .preset-group-card { border: 1px solid var(--border); border-radius: 12px; padding: 10px; background: rgba(255,255,255,0.02); display: grid; gap: 8px; }
+      .entry-scroll { max-height: 220px; overflow-y: auto; display: grid; gap: 8px; padding-right: 4px; }
+      .entry-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+      .entry-chip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 10px; background: rgba(255,255,255,0.06); border: 1px solid var(--border); }
+      .entry-actions { display: flex; gap: 6px; align-items: center; }
+      .icon-btn { border: none; background: rgba(248,113,113,0.1); color: #fca5a5; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-weight: 900; cursor: pointer; }
+      .mini-modal summary { display: inline-flex; align-items: center; gap: 6px; }
       .form-grid { display: grid; gap: 6px; }
       .check-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 6px; }
       details { border: 1px solid var(--border); border-radius: 10px; padding: 8px; background: rgba(255,255,255,0.03); }
@@ -671,55 +682,75 @@ def _render(
           <h3>预设组</h3>
           <span class="chip">{{ preset_groups|length }} 组</span>
         </div>
-        <div class="muted">预设栏完全用于分组管理，每个预设组有一段独立的提示，聊天时勾选分组即可套用对应文本。</div>
+        <div class="muted">每个预设组可以包含多条提示，支持在此增加、修改、删除；条目区域固定高度，可用滚轮浏览。</div>
         <details class="modal-card" open>
           <summary>新增预设组</summary>
           <div class="modal-body">
             <form method="post" action="{{ url_for('manage_preset_group') }}" class="form-grid">
               <input name="group_name" placeholder="组名称" required />
-              <textarea name="group_prompt" placeholder="预设内容（将作为系统提示注入）"></textarea>
               <input type="hidden" name="action" value="add" />
               <button class="secondary" type="submit">创建预设组</button>
             </form>
           </div>
         </details>
         <details class="modal-card" open>
-          <summary>编辑预设组内容</summary>
-          <div class="modal-body" style="display:flex;flex-direction:column;gap:12px;">
+          <summary>重命名 / 删除分组</summary>
+          <div class="modal-body" style="display:grid;gap:10px;">
             {% for group in preset_groups %}
-              <div style="display:flex;flex-direction:column;gap:8px;border:1px solid var(--border);border-radius:10px;padding:10px;background:var(--bg);
-              ">
+              <div class="preset-group-card">
                 <form method="post" action="{{ url_for('manage_preset_group') }}" class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px,1fr));">
                   <input type="hidden" name="group_id" value="{{ group.id }}" />
                   <input name="group_name" value="{{ group.name }}" placeholder="组名称" required />
-                  <textarea name="group_prompt" placeholder="预设内容" style="grid-column:1/-1;min-height:120px;">{{ group.prompt }}</textarea>
                   <input type="hidden" name="action" value="update" />
                   <div style="display:flex;gap:8px;justify-content:flex-end;grid-column:1/-1;">
                     <button class="secondary" type="submit">保存</button>
+                    {% if group.id != 'ungrouped' %}
+                      <button class="secondary" type="submit" name="action" value="delete" onclick="return confirm('删除该预设组？');">删除</button>
+                    {% endif %}
                   </div>
                 </form>
-                {% if group.id != 'ungrouped' %}
-                  <form method="post" action="{{ url_for('manage_preset_group') }}" onsubmit="return confirm('删除该预设组？');" style="display:flex;justify-content:flex-end;">
-                    <input type="hidden" name="group_id" value="{{ group.id }}" />
-                    <input type="hidden" name="action" value="delete" />
-                    <button class="secondary" type="submit">删除</button>
-                  </form>
-                {% endif %}
+                <div class="entry-scroll">
+                  {% set entries = entries_by_group.get(group.id, []) %}
+                  {% if not entries %}
+                    <div class="muted">该组暂无条目，可下方添加。</div>
+                  {% endif %}
+                  {% for entry in entries %}
+                    <div class="entry-row">
+                      <span class="entry-chip">{{ entry.name }}</span>
+                      <div class="entry-actions">
+                        <details class="modal-card mini-modal">
+                          <summary class="chip">编辑</summary>
+                          <div class="modal-body form-grid">
+                            <form method="post" action="{{ url_for('save_preset') }}" class="form-grid">
+                              <input type="hidden" name="entry_id" value="{{ entry.id }}" />
+                              <input type="hidden" name="preset_group_id" value="{{ group.id }}" />
+                              <input name="preset_name" value="{{ entry.name }}" placeholder="条目名称" required />
+                              <textarea name="preset_content" placeholder="预设内容" style="min-height:120px;">{{ entry.content }}</textarea>
+                              <button class="secondary" type="submit">保存</button>
+                            </form>
+                          </div>
+                        </details>
+                        <form method="post" action="{{ url_for('delete_preset') }}">
+                          <input type="hidden" name="entry_id" value="{{ entry.id }}" />
+                          <button class="icon-btn" type="submit" onclick="return confirm('删除该条目？');">×</button>
+                        </form>
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+                <details class="modal-card mini-modal" open>
+                  <summary class="chip">新增条目</summary>
+                  <div class="modal-body">
+                    <form method="post" action="{{ url_for('save_preset') }}" class="form-grid">
+                      <input type="hidden" name="preset_group_id" value="{{ group.id }}" />
+                      <input name="preset_name" placeholder="条目名称" required />
+                      <textarea name="preset_content" placeholder="预设内容" style="min-height:120px;"></textarea>
+                      <button class="secondary" type="submit">保存条目</button>
+                    </form>
+                  </div>
+                </details>
               </div>
             {% endfor %}
-          </div>
-        </details>
-        <details class="modal-card">
-          <summary>快速删除</summary>
-          <div class="modal-body">
-            <form method="post" action="{{ url_for('manage_preset_group') }}" class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px,1fr));">
-              <select name="group_id" required>
-                <option value="">选择要删除的组</option>
-                {% for group in preset_groups %}{% if group.id != 'ungrouped' %}<option value="{{ group.id }}">{{ group.name }}</option>{% endif %}{% endfor %}
-              </select>
-              <input type="hidden" name="action" value="delete" />
-              <button class="secondary" type="submit" onclick="return confirm('删除该预设组？');">删除</button>
-            </form>
           </div>
         </details>
       </section>
@@ -737,6 +768,7 @@ def _render(
         message=message,
         preset_groups=preset_groups,
         preset_entries=list(custom_presets.values()),
+        entries_by_group=entries_by_group,
         manual_groups=manual_groups,
         manual_entries=manual_entries,
         manual_group_names=manual_group_names,
@@ -808,11 +840,21 @@ def send_message():
     active.messages.append(ChatMessage(role="user", content=user_message))
 
     preset_groups = _sync_preset_groups(DATA_DIR, load_custom_presets(DATA_DIR))
-    chosen_entries = [
-        entry
-        for entry in _entries_from_groups(preset_groups)
-        if entry.group_id in set(preset_group_ids)
-    ]
+    preset_map = load_custom_presets(DATA_DIR)
+    selected_ids = set(preset_group_ids)
+    chosen_entries = [entry for entry in preset_map.values() if entry.group_id in selected_ids]
+
+    # 兼容旧的组提示字段：若该组有 prompt 且没有条目，也作为条目加入
+    for group in preset_groups:
+        if group.get("prompt") and group.get("id") in selected_ids:
+            chosen_entries.append(
+                PresetEntry(
+                    id=group.get("id", uuid.uuid4().hex[:8]),
+                    name=f"{group.get('name', '预设组')}提示",
+                    content=str(group.get("prompt", "")),
+                    group_id=group.get("id", ""),
+                )
+            )
 
     try:
         reply = _build_chat_reply(active, user_message, chosen_entries, settings, manual_groups)
@@ -902,14 +944,15 @@ def manage_preset_group():
     elif action in {"rename", "update"}:
         group_id = request.form.get("group_id") or ""
         new_name = (request.form.get("group_name") or "").strip()
-        prompt = (request.form.get("group_prompt") or "").strip()
+        prompt = request.form.get("group_prompt")
         target = next((g for g in groups if g.get("id") == group_id), None)
         if not target:
             flash("未找到要修改的预设组。")
             return redirect(url_for("index"))
         if new_name:
             target["name"] = new_name
-        target["prompt"] = prompt
+        if prompt is not None:
+            target["prompt"] = prompt.strip()
         message = f"已更新预设组：{target['name']}"
     elif action == "delete":
         group_id = request.form.get("group_id") or ""
