@@ -63,6 +63,24 @@ class ChatSession:
     manual_kinds: List[str]
 
 
+def _parse_float(value: str | None, default: float | None) -> float | None:
+    if value is None or value == "":
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        return default
+
+
+def _parse_int(value: str | None, default: int | None) -> int | None:
+    if value is None or value == "":
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
 def _settings_from_form(form) -> Settings:
     saved = load_saved_settings(DATA_DIR)
     base_choice = form.get("base_choice") or None
@@ -71,7 +89,17 @@ def _settings_from_form(form) -> Settings:
 
     api_key = form.get("api_key") or saved.api_key
     model = form.get("model") or saved.model
-    settings = Settings(api_key=api_key, model=model, base_url=base_url)
+    temperature = _parse_float(form.get("temperature"), saved.temperature)
+    top_p = _parse_float(form.get("top_p"), saved.top_p)
+    top_k = _parse_int(form.get("top_k"), saved.top_k)
+    settings = Settings(
+        api_key=api_key,
+        model=model,
+        base_url=base_url,
+        temperature=temperature,
+        top_p=top_p,
+        top_k=top_k,
+    )
     save_settings(DATA_DIR, settings)
     return settings
 
@@ -294,24 +322,35 @@ def _build_chat_reply(
     kb = KnowledgeBase(docs)
     references = kb.search(user_message, limit=4)
 
-    history_text = "\n".join([f"{m.role}: {m.content}" for m in session.messages[-6:]]) or "（无历史）"
-    refs_text = "\n".join([f"- {doc.title}｜{doc.kind}" for doc in references]) or "- 无匹配文档"
+    history_text = "\n".join([f"{m.role}: {m.content}" for m in session.messages[-6:]]) or "(no history)"
+    refs_text = "\n".join([f"- {doc.title}｜{doc.kind}" for doc in references]) or "- no matching documents"
 
     prompt = f"""
-你是一名邮件沟通助手，以对话模式回答并保持友好、清晰的表达。
-当前风格指引：{style.name}
-写作提示：{style.content}
+You are a conversation assistant. Respond in a friendly, concise English tone.
+Current style guide: {style.name}
+Style hints: {style.content}
 
-最近对话：
+Recent messages:
 {history_text}
 
-相关说明书：
+Relevant manuals:
 {refs_text}
 
-用户消息：{user_message}
-请给出下一条回复，保持中文输出，并可引用相关说明书要点。
+User message: {user_message}
+Provide the next reply in English and cite any helpful manual points.
 """
     provider = get_provider(settings)
+    print(
+        "[AI REQUEST] model=%s base=%s temperature=%s top_p=%s top_k=%s"
+        % (
+            settings.model,
+            settings.base_url or "https://api.openai.com/v1",
+            settings.temperature,
+            settings.top_p,
+            settings.top_k,
+        )
+    )
+    print("[AI PROMPT]", prompt)
     return provider.generate(prompt)
 
 
@@ -502,14 +541,17 @@ def _render(
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;">
           <h2>API / 说明概览</h2>
-          <span class="chip">当前模型：{{ settings.model or '未设置' }}</span>
+          <span class="chip">Model: {{ settings.model or 'unset' }} ｜ Temp {{ settings.temperature if settings.temperature is not none else 'auto' }} ｜ Top-p {{ settings.top_p if settings.top_p is not none else 'auto' }} ｜ Top-k {{ settings.top_k if settings.top_k is not none else 'auto' }}</span>
         </div>
-        <div class="muted">API、模型与说明书上传集中在这里，聊天区保持整洁。</div>
+        <div class="muted">Keep all API, model, and manual actions up top so the chat stays focused. Use the randomness controls to tune creativity.</div>
         <form method="post" action="{{ url_for('save_api_settings') }}" class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px,1fr));">
           <input name="base_custom" placeholder="API Base" value="{{ settings.base_url or '' }}" />
-          <input name="model" placeholder="模型" value="{{ settings.model or '' }}" />
+          <input name="model" placeholder="Model" value="{{ settings.model or '' }}" />
           <input name="api_key" type="password" placeholder="API Key" value="{{ settings.api_key or '' }}" />
-          <button class="secondary" type="submit">保存 API 信息</button>
+          <input name="temperature" type="number" step="0.05" min="0" max="2" placeholder="Temperature" value="{{ settings.temperature if settings.temperature is not none else '' }}" />
+          <input name="top_p" type="number" step="0.05" min="0" max="1" placeholder="Top-p" value="{{ settings.top_p if settings.top_p is not none else '' }}" />
+          <input name="top_k" type="number" step="1" min="1" placeholder="Top-k" value="{{ settings.top_k if settings.top_k is not none else '' }}" />
+          <button class="secondary" type="submit">保存 / Save API</button>
         </form>
         <div class="tag-row">
           {% for base in default_bases %}<span class="chip">{{ base }}</span>{% endfor %}
