@@ -453,20 +453,21 @@ def _render(
       .layout { display: grid; grid-template-columns: 260px 1fr 340px; gap: 12px; align-items: stretch; }
       .sidebar { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 10px; display: grid; gap: 10px; grid-template-rows: auto 1fr; }
       .chat-list { overflow-y: auto; display: grid; gap: 8px; padding-right: 4px; }
-      .chat-item { padding: 10px; border-radius: 10px; border: 1px solid transparent; background: rgba(255,255,255,0.02); cursor: pointer; display: grid; gap: 4px; }
+      .chat-item { padding: 10px; border-radius: 10px; border: 1px solid transparent; background: rgba(255,255,255,0.02); display: grid; gap: 4px; position: relative; }
       .chat-item.active { border-color: var(--accent); background: rgba(34,211,238,0.08); }
-      .chat-shell { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px; display: grid; grid-template-rows: auto 1fr auto; gap: 10px; }
+      .chat-item .chat-delete { position: absolute; top: 6px; right: 6px; }
+      .chat-item .icon-btn { border: none; background: rgba(248,113,113,0.1); color: #fca5a5; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-weight: 900; cursor: pointer; }
+      .chat-item .chat-link { color: inherit; text-decoration: none; display: grid; gap: 4px; }
+      .chat-shell { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px; display: grid; grid-template-rows: auto auto 1fr auto; gap: 10px; height: 640px; }
       .chat-header { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
       .tag-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
       .chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; background: rgba(255,255,255,0.06); border: 1px solid var(--border); font-size: 12px; }
       .chip small { color: var(--muted); }
-      .chip .close { font-weight: 700; color: var(--muted); }
       .chip-check { display: inline-flex; align-items: center; }
       .chip-check input { display: none; }
       .chip-check span { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--border); background: rgba(255,255,255,0.05); cursor: pointer; }
       .chip-check input:checked + span { border-color: var(--accent); background: rgba(34,211,238,0.1); }
-      .chip-check .close { color: var(--muted); font-weight: 700; }
-      .chat-window { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px; overflow-y: auto; min-height: 360px; display: grid; gap: 10px; }
+      .chat-window { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px; overflow-y: auto; height: 380px; display: grid; gap: 10px; }
       .msg { padding: 10px 12px; border-radius: 12px; max-width: 90%; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
       .msg.user { background: linear-gradient(135deg, rgba(34,211,238,0.18), rgba(34,211,238,0.08)); margin-left: auto; }
       .msg.assistant { background: rgba(255,255,255,0.05); border: 1px solid var(--border); }
@@ -598,12 +599,18 @@ def _render(
             <button class="secondary" type="submit">新增</button>
           </form>
         </div>
-        <div class="chat-list">
+          <div class="chat-list">
           {% for session in sessions %}
-            <a class="chat-item {% if session.id == active.id %}active{% endif %}" href="{{ url_for('index', chat_id=session.id) }}">
-              <div><strong>{{ session.title }}</strong></div>
-              <div class="muted">{{ session.messages|length }} 条</div>
-            </a>
+            <div class="chat-item {% if session.id == active.id %}active{% endif %}">
+              <a class="chat-link" href="{{ url_for('index', chat_id=session.id) }}">
+                <div><strong>{{ session.title }}</strong></div>
+                <div class="muted">{{ session.messages|length }} 条</div>
+              </a>
+              <form class="chat-delete" method="post" action="{{ url_for('delete_chat') }}" onsubmit="return confirm('确定删除此对话吗？');">
+                <input type="hidden" name="chat_id" value="{{ session.id }}" />
+                <button class="icon-btn" type="submit">✕</button>
+              </form>
+            </div>
           {% endfor %}
         </div>
       </aside>
@@ -636,7 +643,7 @@ def _render(
             {% for group in preset_groups %}
               <label class="chip-check">
                 <input type="checkbox" name="preset_group_ids" value="{{ group.id }}" {% if group.id in selected_preset_groups %}checked{% endif %}>
-                <span>{{ group.name }}<small>组</small><span class="close">✕</span></span>
+                <span>{{ group.name }}<small>组</small></span>
               </label>
             {% endfor %}
           </div>
@@ -644,7 +651,7 @@ def _render(
             {% for key, preset in styles.items() %}
               <label class="chip-check">
                 <input type="checkbox" name="style_keys" value="{{ key }}" {% if key in selected_styles %}checked{% endif %}>
-                <span>{{ preset.name }}<small>{{ key }}</small><span class="close">✕</span></span>
+                <span>{{ preset.name }}<small>{{ key }}</small></span>
               </label>
             {% endfor %}
           </div>
@@ -652,7 +659,7 @@ def _render(
             {% for name, items in manual_groups.items() %}
               <label class="chip-check">
                 <input type="checkbox" name="manual_groups" value="{{ name }}" {% if name in selected_manual_groups %}checked{% endif %}>
-                <span>{{ name }}<small>{{ items|length }} 条</small><span class="close">✕</span></span>
+                <span>{{ name }}<small>{{ items|length }} 条</small></span>
               </label>
             {% endfor %}
           </div>
@@ -778,6 +785,23 @@ def new_chat():
     sessions.insert(0, session)
     _save_chats(DATA_DIR, sessions)
     return redirect(url_for("index", chat_id=session.id))
+
+
+@app.route("/chat/delete", methods=["POST"])
+def delete_chat():
+    chat_id = request.form.get("chat_id")
+    sessions = _load_chats(DATA_DIR)
+    remaining = [s for s in sessions if s.id != chat_id]
+    if len(remaining) == len(sessions):
+        flash("未找到要删除的对话。")
+        return redirect(url_for("index"))
+
+    if not remaining:
+        remaining.append(_default_chat())
+
+    _save_chats(DATA_DIR, remaining)
+    append_history(DATA_DIR, new_entry("chat_deleted", {"chat_id": chat_id}))
+    return redirect(url_for("index", chat_id=remaining[0].id))
 
 
 @app.route("/chat/send", methods=["POST"])
