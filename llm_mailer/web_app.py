@@ -58,6 +58,9 @@ class ChatSession:
     id: str
     title: str
     messages: List[ChatMessage]
+    style_keys: List[str]
+    preset_group_ids: List[str]
+    manual_kinds: List[str]
 
 
 def _settings_from_form(form) -> Settings:
@@ -85,7 +88,16 @@ def _load_chats(data_dir: Path) -> List[ChatSession]:
     sessions: List[ChatSession] = []
     for item in raw:
         messages = [ChatMessage(role=m.get("role", "user"), content=m.get("content", "")) for m in item.get("messages", [])]
-        sessions.append(ChatSession(id=item.get("id", ""), title=item.get("title", "未命名对话"), messages=messages))
+        sessions.append(
+            ChatSession(
+                id=item.get("id", ""),
+                title=item.get("title", "未命名对话"),
+                messages=messages,
+                style_keys=item.get("style_keys") or ["concise_business"],
+                preset_group_ids=item.get("preset_group_ids") or [],
+                manual_kinds=item.get("manual_kinds") or [],
+            )
+        )
     return sessions
 
 
@@ -94,12 +106,28 @@ def _save_chats(data_dir: Path, sessions: List[ChatSession]) -> None:
     path = _chat_file(data_dir)
     payload = []
     for session in sessions:
-        payload.append({"id": session.id, "title": session.title, "messages": [asdict(m) for m in session.messages]})
+        payload.append(
+            {
+                "id": session.id,
+                "title": session.title,
+                "messages": [asdict(m) for m in session.messages],
+                "style_keys": session.style_keys,
+                "preset_group_ids": session.preset_group_ids,
+                "manual_kinds": session.manual_kinds,
+            }
+        )
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _default_chat() -> ChatSession:
-    return ChatSession(id=uuid.uuid4().hex[:8], title="默认对话", messages=[])
+    return ChatSession(
+        id=uuid.uuid4().hex[:8],
+        title="默认对话",
+        messages=[],
+        style_keys=["concise_business"],
+        preset_group_ids=[],
+        manual_kinds=[],
+    )
 
 
 def _ensure_sessions(data_dir: Path, chat_id: str | None = None) -> Tuple[List[ChatSession], ChatSession]:
@@ -231,11 +259,17 @@ def _manual_groups(data_dir: Path) -> Dict[str, List[str]]:
     return groups
 
 
-def _build_chat_reply(session: ChatSession, user_message: str, style_keys: List[str], settings: Settings) -> str:
+def _build_chat_reply(
+    session: ChatSession, user_message: str, style_keys: List[str], settings: Settings, manual_kinds: List[str]
+) -> str:
     style_presets = merged_presets(DATA_DIR)
     style = combine_presets(style_presets, style_keys)
 
     kb = KnowledgeBase.from_json_files([DATA_DIR / "manuals.json", DATA_DIR / "cases.json"])
+    docs = kb.documents
+    if manual_kinds:
+        docs = [doc for doc in docs if doc.kind in manual_kinds]
+    kb = KnowledgeBase(docs)
     references = kb.search(user_message, limit=4)
 
     history_text = "\n".join([f"{m.role}: {m.content}" for m in session.messages[-6:]]) or "（无历史）"
@@ -360,7 +394,14 @@ def _delete_manual_group(data_dir: Path, target: str) -> None:
             _save_manual_dataset(data_dir, dataset, filtered)
 
 
-def _render(reply: str | None = None, message: str | None = None, selected_styles: list[str] | None = None, chat_id: str | None = None):
+def _render(
+    reply: str | None = None,
+    message: str | None = None,
+    selected_styles: list[str] | None = None,
+    chat_id: str | None = None,
+    selected_manual_groups: list[str] | None = None,
+    selected_preset_groups: list[str] | None = None,
+):
     styles = merged_presets(DATA_DIR)
     custom_presets = load_custom_presets(DATA_DIR)
     settings = load_saved_settings(DATA_DIR)
@@ -371,7 +412,9 @@ def _render(reply: str | None = None, message: str | None = None, selected_style
     manual_groups = _manual_groups(DATA_DIR)
     manual_group_names = list(manual_groups.keys())
 
-    selected_styles = selected_styles or ["concise_business"]
+    selected_styles = selected_styles or active.style_keys or ["concise_business"]
+    selected_manual_groups = selected_manual_groups or active.manual_kinds
+    selected_preset_groups = selected_preset_groups or active.preset_group_ids
 
     template = """
 <!doctype html>
@@ -412,13 +455,19 @@ def _render(reply: str | None = None, message: str | None = None, selected_style
       a { color: var(--accent-2); text-decoration: none; }
       .top-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
       .pill { display: inline-flex; align-items: center; padding: 6px 10px; background: rgba(34,211,238,0.12); color: #a5f3fc; border-radius: 999px; font-size: 12px; }
-      .widget { background: linear-gradient(145deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); border: 1px solid var(--border); border-radius: 14px; padding: 12px; box-shadow: 0 12px 40px rgba(0,0,0,0.3); }
+      .widget { background: linear-gradient(145deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); border: 1px solid var(--border); border-radius: 14px; padding: 12px; box-shadow: 0 12px 40px rgba(0,0,0,0.3); position: relative; }
       .widget details { background: rgba(255,255,255,0.02); border: 1px solid #1f2937; border-radius: 10px; padding: 8px 10px; }
       .widget summary { cursor: pointer; font-weight: 700; }
       .muted { color: var(--muted); font-size: 13px; }
       .chip { display: inline-flex; padding: 4px 8px; border-radius: 999px; background: rgba(255,255,255,0.08); font-size: 12px; }
       .list-inline { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
       .list-inline span { padding: 4px 8px; border-radius: 10px; background: rgba(255,255,255,0.06); font-size: 12px; }
+      .floating-tools { display: flex; flex-wrap: wrap; gap: 10px; }
+      .mini-window { position: relative; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 12px; padding: 8px 10px; min-width: 220px; }
+      .mini-window summary { display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+      .mini-body { margin-top: 8px; display: grid; gap: 8px; }
+      .check-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 6px; }
+      .inline-badge { font-size: 12px; padding: 2px 6px; border-radius: 8px; background: rgba(34,211,238,0.12); color: #a5f3fc; }
       .chat-layout { display: grid; grid-template-columns: 280px 1fr; gap: 14px; background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 12px; box-shadow: 0 16px 40px rgba(0,0,0,0.35); }
       .chat-list { border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
       .chat-item { padding: 10px; border-radius: 10px; cursor: pointer; border: 1px solid transparent; background: rgba(255,255,255,0.02); }
@@ -466,51 +515,56 @@ def _render(reply: str | None = None, message: str | None = None, selected_style
               {% for item in group.presets %}<span>{{ item.key }}｜{{ item.name }}</span>{% endfor %}
             </div>
           {% endfor %}
-          <form method=\"post\" action=\"{{ url_for('save_preset') }}\" style=\"margin-top:8px; display:grid; gap:6px;\">
-            <input name=\"preset_key\" placeholder=\"新增或更新预设 Key\" required />
-            <input name=\"preset_name\" placeholder=\"显示名称\" required />
-            <input name=\"preset_tone\" placeholder=\"语气描述\" required />
-            <input name=\"preset_closing\" placeholder=\"结尾语\" required />
-            <textarea name=\"preset_structure\" rows=\"2\" placeholder=\"结构（每行一条）\"></textarea>
-            <textarea name=\"preset_reminders\" rows=\"2\" placeholder=\"提醒（每行一条）\"></textarea>
-            <input name=\"preset_group\" placeholder=\"所属预设组（不存在将新建）\" />
-            <button class=\"secondary\" type=\"submit\">保存/覆盖预设</button>
-          </form>
-          <form method=\"post\" action=\"{{ url_for('delete_preset') }}\" class=\"inline\" style=\"margin-top:6px; gap:6px;\">
-            <input name=\"preset_key\" placeholder=\"删除自定义预设 Key\" required />
-            <button class=\"secondary\" type=\"submit\">删除预设</button>
-          </form>
-          <div style=\"display:grid; gap:6px; margin-top:10px;\">
-            <form method=\"post\" action=\"{{ url_for('manage_preset_group') }}\" class=\"inline\" style=\"gap:6px;\">
-              <input name=\"group_name\" placeholder=\"新增预设组名称\" required />
-              <input type=\"hidden\" name=\"action\" value=\"add\" />
-              <button class=\"secondary\" type=\"submit\">新增组</button>
-            </form>
-            <form method=\"post\" action=\"{{ url_for('manage_preset_group') }}\" class=\"inline\" style=\"gap:6px;\">
-              <select name=\"group_id\" required>
-                <option value=\"\">选择要重命名的组</option>
-                {% for group in preset_groups if group.id != 'system' %}
-                  <option value=\"{{ group.id }}\">{{ group.name }}</option>
-                {% endfor %}
-              </select>
-              <input name=\"group_name\" placeholder=\"新名称\" required />
-              <input type=\"hidden\" name=\"action\" value=\"rename\" />
-              <button class=\"secondary\" type=\"submit\">重命名组</button>
-            </form>
-            <form method=\"post\" action=\"{{ url_for('manage_preset_group') }}\" class=\"inline\" style=\"gap:6px;\">
-              <select name=\"group_id\" required>
-                <option value=\"\">选择要删除的组（系统组无法删除）</option>
-                {% for group in preset_groups if group.id not in ['system'] %}
-                  <option value=\"{{ group.id }}\">{{ group.name }}</option>
-                {% endfor %}
-              </select>
-              <input type=\"hidden\" name=\"action\" value=\"delete\" />
-              <button class=\"secondary\" type=\"submit\">删除组</button>
-            </form>
-          </div>
-        </details>
-      </div>
-
+          <details class=\"mini-window\" style=\"margin-top:8px;\">
+            <summary>新增 / 编辑自定义预设</summary>
+            <div class=\"mini-body\">
+              <form method=\"post\" action=\"{{ url_for('save_preset') }}\" style=\"display:grid; gap:6px;\">
+                <input name=\"preset_key\" placeholder=\"预设 Key（唯一标识）\" required />
+                <input name=\"preset_name\" placeholder=\"预设名称\" required />
+                <input name=\"preset_tone\" placeholder=\"语气（例如：正式且友好）\" required />
+                <input name=\"preset_closing\" placeholder=\"结尾（例如：期待回复，祝好）\" required />
+                <textarea name=\"preset_structure\" placeholder=\"结构（每行一条）\"></textarea>
+                <textarea name=\"preset_reminders\" placeholder=\"提醒（每行一条）\"></textarea>
+                <input name=\"preset_group\" placeholder=\"所属预设组名称（可新建）\" />
+                <button class=\"secondary\" type=\"submit\">保存/覆盖预设</button>
+              </form>
+              <form method=\"post\" action=\"{{ url_for('delete_preset') }}\" class=\"inline\" style=\"margin-top:6px; gap:6px;\">
+                <input name=\"preset_key\" placeholder=\"删除自定义预设 Key\" required />
+                <button class=\"secondary\" type=\"submit\">删除预设</button>
+              </form>
+            </div>
+          </details>
+          <details class=\"mini-window\" style=\"margin-top:8px;\">
+            <summary>预设组管理</summary>
+            <div class=\"mini-body\" style=\"gap:10px;\">
+              <form method=\"post\" action=\"{{ url_for('manage_preset_group') }}\" class=\"inline\" style=\"gap:6px;\">
+                <input name=\"group_name\" placeholder=\"新增预设组名称\" required />
+                <input type=\"hidden\" name=\"action\" value=\"add\" />
+                <button class=\"secondary\" type=\"submit\">新增组</button>
+              </form>
+              <form method=\"post\" action=\"{{ url_for('manage_preset_group') }}\" class=\"inline\" style=\"gap:6px;\">
+                <select name=\"group_id\" required>
+                  <option value=\"\">选择要重命名的组</option>
+                  {% for group in preset_groups if group.id != "system" %}
+                    <option value=\"{{ group.id }}\">{{ group.name }}</option>
+                  {% endfor %}
+                </select>
+                <input name=\"group_name\" placeholder=\"新名称\" required />
+                <input type=\"hidden\" name=\"action\" value=\"rename\" />
+                <button class=\"secondary\" type=\"submit\">重命名组</button>
+              </form>
+              <form method=\"post\" action=\"{{ url_for('manage_preset_group') }}\" class=\"inline\" style=\"gap:6px;\">
+                <select name=\"group_id\" required>
+                  <option value=\"\">选择要删除的组（系统组无法删除）</option>
+                  {% for group in preset_groups if group.id not in ["system"] %}
+                    <option value=\"{{ group.id }}\">{{ group.name }}</option>
+                  {% endfor %}
+                </select>
+                <input type=\"hidden\" name=\"action\" value=\"delete\" />
+                <button class=\"secondary\" type=\"submit\">删除组</button>
+              </form>
+            </div>
+          </details>
       <div class=\"widget\">
         <details open>
           <summary>说明书组</summary>
@@ -522,58 +576,64 @@ def _render(reply: str | None = None, message: str | None = None, selected_style
           {% else %}
             <div class=\"muted\">暂无说明书或案例，请上传 PDF 入库。</div>
           {% endif %}
-          <form method=\"post\" action=\"{{ url_for('upload') }}\" enctype=\"multipart/form-data\" style=\"margin-top:8px; display:grid; gap:6px;\">
-            <input type=\"file\" name=\"manual_pdf\" accept=\"application/pdf\" />
-            <button class=\"secondary\" type=\"submit\">上传并入库</button>
-          </form>
-          <div style=\"display:grid; gap:6px; margin-top:10px;\">
-            <form method=\"post\" action=\"{{ url_for('manage_manual_group') }}\" class=\"inline\" style=\"gap:6px;\">
-              <input name=\"group_name\" placeholder=\"新增说明书组名称\" required />
-              <input type=\"hidden\" name=\"action\" value=\"add\" />
-              <button class=\"secondary\" type=\"submit\">新增组</button>
-            </form>
-            <form method=\"post\" action=\"{{ url_for('manage_manual_group') }}\" class=\"inline\" style=\"gap:6px;\">
-              <select name=\"group_old\" required>
-                <option value=\"\">选择要重命名的组</option>
-                {% for name in manual_group_names %}
-                  <option value=\"{{ name }}\">{{ name }}</option>
-                {% endfor %}
-              </select>
-              <input name=\"group_new\" placeholder=\"新名称\" required />
-              <input type=\"hidden\" name=\"action\" value=\"rename\" />
-              <button class=\"secondary\" type=\"submit\">重命名组</button>
-            </form>
-            <form method=\"post\" action=\"{{ url_for('manage_manual_group') }}\" class=\"inline\" style=\"gap:6px;\">
-              <select name=\"group_name\" required>
-                <option value=\"\">选择要删除的组</option>
-                {% for name in manual_group_names %}
-                  <option value=\"{{ name }}\">{{ name }}</option>
-                {% endfor %}
-              </select>
-              <input type=\"hidden\" name=\"action\" value=\"delete\" />
-              <button class=\"secondary\" type=\"submit\">删除组</button>
-            </form>
-            <form method=\"post\" action=\"{{ url_for('update_manual') }}\" style=\"display:grid; gap:6px;\">
-              <select name=\"manual_select\" required>
-                <option value=\"\">选择说明书以重命名/移动分组</option>
-                {% for item in manual_entries %}
-                  <option value=\"{{ item.id }}||{{ item.dataset }}\">{{ item.title }}｜组：{{ item.kind }}｜源：{{ item.dataset }} </option>
-                {% endfor %}
-              </select>
-              <input name=\"manual_title\" placeholder=\"新标题\" required />
-              <input name=\"manual_kind\" placeholder=\"分组名称（不存在将新建）\" required />
-              <button class=\"secondary\" type=\"submit\">保存说明书修改</button>
-            </form>
-            <form method=\"post\" action=\"{{ url_for('delete_manual') }}\" class=\"inline\" style=\"gap:6px;\">
-              <select name=\"manual_select\" required>
-                <option value=\"\">选择要删除的说明书</option>
-                {% for item in manual_entries %}
-                  <option value=\"{{ item.id }}||{{ item.dataset }}\">{{ item.title }}（{{ item.kind }}）</option>
-                {% endfor %}
-              </select>
-              <button class=\"secondary\" type=\"submit\">删除说明书</button>
-            </form>
-          </div>
+          <details class=\"mini-window\" style=\"margin-top:8px;\">
+            <summary>上传 / 管理说明书</summary>
+            <div class=\"mini-body\">
+              <form method=\"post\" action=\"{{ url_for('upload') }}\" enctype=\"multipart/form-data\" style=\"display:grid; gap:6px;\">
+                <input type=\"file\" name=\"manual_pdfs\" accept=\"application/pdf\" multiple />
+                <div class=\"muted\">可一次选择多个 PDF，逐个入库。</div>
+                <button class=\"secondary\" type=\"submit\">批量上传并入库</button>
+              </form>
+              <div style=\"display:grid; gap:6px;\">
+                <form method=\"post\" action=\"{{ url_for('manage_manual_group') }}\" class=\"inline\" style=\"gap:6px;\">
+                  <input name=\"group_name\" placeholder=\"新增说明书组名称\" required />
+                  <input type=\"hidden\" name=\"action\" value=\"add\" />
+                  <button class=\"secondary\" type=\"submit\">新增组</button>
+                </form>
+                <form method=\"post\" action=\"{{ url_for('manage_manual_group') }}\" class=\"inline\" style=\"gap:6px;\">
+                  <select name=\"group_old\" required>
+                    <option value=\"\">选择要重命名的组</option>
+                    {% for name in manual_group_names %}
+                      <option value=\"{{ name }}\">{{ name }}</option>
+                    {% endfor %}
+                  </select>
+                  <input name=\"group_new\" placeholder=\"新名称\" required />
+                  <input type=\"hidden\" name=\"action\" value=\"rename\" />
+                  <button class=\"secondary\" type=\"submit\">重命名组</button>
+                </form>
+                <form method=\"post\" action=\"{{ url_for('manage_manual_group') }}\" class=\"inline\" style=\"gap:6px;\">
+                  <select name=\"group_name\" required>
+                    <option value=\"\">选择要删除的组</option>
+                    {% for name in manual_group_names %}
+                      <option value=\"{{ name }}\">{{ name }}</option>
+                    {% endfor %}
+                  </select>
+                  <input type=\"hidden\" name=\"action\" value=\"delete\" />
+                  <button class=\"secondary\" type=\"submit\">删除组</button>
+                </form>
+                <form method=\"post\" action=\"{{ url_for('update_manual') }}\" style=\"display:grid; gap:6px;\">
+                  <select name=\"manual_select\" required>
+                    <option value=\"\">选择说明书以重命名/移动分组</option>
+                    {% for item in manual_entries %}
+                      <option value=\"{{ item.id }}||{{ item.dataset }}\">{{ item.title }}｜组：{{ item.kind }}｜源：{{ item.dataset }} </option>
+                    {% endfor %}
+                  </select>
+                  <input name=\"manual_title\" placeholder=\"新标题\" required />
+                  <input name=\"manual_kind\" placeholder=\"分组名称（不存在将新建）\" required />
+                  <button class=\"secondary\" type=\"submit\">保存说明书修改</button>
+                </form>
+                <form method=\"post\" action=\"{{ url_for('delete_manual') }}\" class=\"inline\" style=\"gap:6px;\">
+                  <select name=\"manual_select\" required>
+                    <option value=\"\">选择要删除的说明书</option>
+                    {% for item in manual_entries %}
+                      <option value=\"{{ item.id }}||{{ item.dataset }}\">{{ item.title }}（{{ item.kind }}）</option>
+                    {% endfor %}
+                  </select>
+                  <button class=\"secondary\" type=\"submit\">删除说明书</button>
+                </form>
+              </div>
+            </div>
+          </details>
         </details>
       </div>
 
@@ -624,11 +684,29 @@ def _render(reply: str | None = None, message: str | None = None, selected_style
           <input type=\"hidden\" name=\"chat_id\" value=\"{{ active.id }}\" />
           <textarea name=\"message\" placeholder=\"输入邮件需求或和助手聊天，回复将展示在下方对话框...\" required>{{ last_message }}</textarea>
           <div class=\"controls\">
-            <select name=\"style_keys\" multiple size=\"4\">
-              {% for key, preset in styles.items() %}
-                <option value=\"{{ key }}\" {% if key in selected_styles %}selected{% endif %}>{{ key }}｜{{ preset.name }}</option>
-              {% endfor %}
-            </select>
+            <details class=\"mini-window\" open>
+              <summary>会话资源选择 <span class=\"inline-badge\">预设 & 说明书</span></summary>
+              <div class=\"mini-body\">
+                <div>预设组（勾选即可套用组内全部预设）</div>
+                <div class=\"check-grid\">
+                  {% for group in preset_groups %}
+                    <label><input type=\"checkbox\" name=\"preset_group_ids\" value=\"{{ group.id }}\" {% if group.id in selected_preset_groups %}checked{% endif %}> {{ group.name }}</label>
+                  {% endfor %}
+                </div>
+                <div>预设组合（多选可覆盖组内默认）</div>
+                <select name=\"style_keys\" multiple size=\"4\">
+                  {% for key, preset in styles.items() %}
+                    <option value=\"{{ key }}\" {% if key in selected_styles %}selected{% endif %}>{{ key }}｜{{ preset.name }}</option>
+                  {% endfor %}
+                </select>
+                <div>说明书组（仅搜索勾选的分组；为空则搜索全部）</div>
+                <div class=\"check-grid\">
+                  {% for name in manual_group_names %}
+                    <label><input type=\"checkbox\" name=\"manual_groups\" value=\"{{ name }}\" {% if name in selected_manual_groups %}checked{% endif %}> {{ name }}</label>
+                  {% endfor %}
+                </div>
+              </div>
+            </details>
             <select name=\"base_choice\">
               <option value=\"\">选择兼容 Base（可选）</option>
               {% for base in default_bases %}
@@ -688,6 +766,8 @@ def _render(reply: str | None = None, message: str | None = None, selected_style
         sessions=sessions,
         active=active,
         selected_styles=selected_styles,
+        selected_manual_groups=selected_manual_groups,
+        selected_preset_groups=selected_preset_groups,
         last_message="",
     )
 
@@ -702,7 +782,14 @@ def index():
 def new_chat():
     title = (request.form.get("chat_title") or "").strip()
     sessions = _load_chats(DATA_DIR)
-    session = ChatSession(id=uuid.uuid4().hex[:8], title=title or f"会话 {len(sessions)+1}", messages=[])
+    session = ChatSession(
+        id=uuid.uuid4().hex[:8],
+        title=title or f"会话 {len(sessions)+1}",
+        messages=[],
+        style_keys=["concise_business"],
+        preset_group_ids=[],
+        manual_kinds=[],
+    )
     sessions.insert(0, session)
     _save_chats(DATA_DIR, sessions)
     return redirect(url_for("index", chat_id=session.id))
@@ -716,14 +803,29 @@ def send_message():
         return redirect(url_for("index"))
 
     chat_id = request.form.get("chat_id")
-    style_keys = request.form.getlist("style_keys") or ["concise_business"]
+    style_keys = request.form.getlist("style_keys")
+    preset_group_ids = request.form.getlist("preset_group_ids")
+    manual_groups = request.form.getlist("manual_groups")
     settings = _settings_from_form(request.form)
 
     sessions, active = _ensure_sessions(DATA_DIR, chat_id)
+    if not style_keys and preset_group_ids:
+        # 自动汇总所选组下的预设
+        groups = _sync_preset_groups(DATA_DIR, load_custom_presets(DATA_DIR))
+        found = []
+        for group in groups:
+            if group.get("id") in set(preset_group_ids):
+                found.extend([p.get("key") for p in group.get("presets", [])])
+        style_keys = found
+    style_keys = style_keys or ["concise_business"]
+
+    active.style_keys = style_keys
+    active.manual_kinds = manual_groups
+    active.preset_group_ids = preset_group_ids
     active.messages.append(ChatMessage(role="user", content=user_message))
 
     try:
-        reply = _build_chat_reply(active, user_message, style_keys, settings)
+        reply = _build_chat_reply(active, user_message, style_keys, settings, manual_groups)
     except Exception as exc:  # noqa: BLE001
         _save_chats(DATA_DIR, sessions)
         append_history(
@@ -739,7 +841,12 @@ def send_message():
             ),
         )
         flash(f"回复生成失败：{exc}")
-        return _render(selected_styles=style_keys, chat_id=active.id)
+        return _render(
+            selected_styles=style_keys,
+            chat_id=active.id,
+            selected_manual_groups=manual_groups,
+            selected_preset_groups=preset_group_ids,
+        )
 
     active.messages.append(ChatMessage(role="assistant", content=reply))
     _save_chats(DATA_DIR, sessions)
@@ -752,6 +859,8 @@ def send_message():
                 "chat_id": active.id,
                 "message": user_message,
                 "style_keys": style_keys,
+                "manual_groups": manual_groups,
+                "preset_group_ids": preset_group_ids,
                 "settings": {
                     "base_url": settings.base_url,
                     "model": settings.model,
@@ -892,31 +1001,39 @@ def save_preset():
 
 @app.route("/upload", methods=["POST"])
 def upload():
-    file = request.files.get("manual_pdf")
-    if not file or not file.filename:
+    files = request.files.getlist("manual_pdfs")
+    files = [f for f in files if f and f.filename]
+    if not files:
         flash("请选择要上传的 PDF 文件。")
-        return redirect(url_for("index"))
-
-    filename = secure_filename(file.filename)
-    if not filename.lower().endswith(".pdf"):
-        flash("仅支持 PDF 文件上传。")
         return redirect(url_for("index"))
 
     uploads_dir = DATA_DIR / "manual_uploads"
     uploads_dir.mkdir(parents=True, exist_ok=True)
-    save_path = uploads_dir / filename
-    file.save(save_path)
 
-    entry = append_manual_from_pdf(save_path, DATA_DIR)
-    message = f"已入库：{entry['title']}（来源：{save_path}）"
-    append_history(
-        DATA_DIR,
-        new_entry(
-            "manual_upload",
-            {"filename": filename, "title": entry["title"], "source": str(save_path)},
-        ),
-    )
-    return _render(message=message)
+    messages: list[str] = []
+    for file in files:
+        filename = secure_filename(file.filename)
+        if not filename.lower().endswith(".pdf"):
+            messages.append(f"跳过 {filename}：仅支持 PDF")
+            continue
+
+        save_path = uploads_dir / filename
+        file.save(save_path)
+        entry = append_manual_from_pdf(save_path, DATA_DIR)
+        messages.append(f"已入库：{entry['title']}（{filename}）")
+        append_history(
+            DATA_DIR,
+            new_entry(
+                "manual_upload",
+                {"filename": filename, "title": entry["title"], "source": str(save_path)},
+            ),
+        )
+
+    if not messages:
+        flash("未处理任何文件，请确认格式。")
+        return redirect(url_for("index"))
+
+    return _render(message="；".join(messages))
 
 
 @app.route("/manual/group", methods=["POST"])
