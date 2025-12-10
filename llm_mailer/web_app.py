@@ -118,8 +118,8 @@ def _preset_groups(data_dir: Path) -> List[Dict[str, object]]:
     defaults = default_style_presets()
     custom = load_custom_presets(data_dir)
     groups = []
-    groups.append({"name": "系统预设组", "items": [{"key": k, "name": v.name} for k, v in defaults.items()]})
-    groups.append({"name": "自定义预设组", "items": [{"key": k, "name": v.name} for k, v in custom.items()]})
+    groups.append({"name": "系统预设组", "presets": [{"key": k, "name": v.name} for k, v in defaults.items()]})
+    groups.append({"name": "自定义预设组", "presets": [{"key": k, "name": v.name} for k, v in custom.items()]})
     return groups
 
 
@@ -260,7 +260,7 @@ def _render(reply: str | None = None, message: str | None = None, selected_style
           {% for group in preset_groups %}
             <div style=\"margin-top:6px;\"><strong>{{ group.name }}</strong></div>
             <div class=\"list-inline\">
-              {% for item in group.items %}<span>{{ item.key }}｜{{ item.name }}</span>{% endfor %}
+              {% for item in group.presets %}<span>{{ item.key }}｜{{ item.name }}</span>{% endfor %}
             </div>
           {% endfor %}
           <form method=\"post\" action=\"{{ url_for('save_preset') }}\" style=\"margin-top:8px; display:grid; gap:6px;\">
