@@ -164,18 +164,23 @@ def _sync_preset_groups(data_dir: Path, custom_presets: Dict[str, PresetEntry]) 
     fallback_id = "ungrouped"
     fallback_name = "未分组预设"
 
+    grouped_entry_content: Dict[str, List[str]] = {}
+    for entry in custom_presets.values():
+        grouped_entry_content.setdefault(entry.group_id, []).append(entry.content)
+
     normalized: List[Dict[str, object]] = []
     seen = set()
     for group in groups:
         gid = group.get("id") or uuid.uuid4().hex[:8]
         name = group.get("name") or "未命名组"
+        prompt = group.get("prompt") or "\n\n".join(grouped_entry_content.get(gid, []))
         if gid in seen:
             gid = uuid.uuid4().hex[:8]
         seen.add(gid)
-        normalized.append({"id": gid, "name": name})
+        normalized.append({"id": gid, "name": name, "prompt": prompt or ""})
 
     if not any(g.get("id") == fallback_id for g in normalized):
-        normalized.insert(0, {"id": fallback_id, "name": fallback_name})
+        normalized.insert(0, {"id": fallback_id, "name": fallback_name, "prompt": ""})
 
     available_group_ids = {g["id"] for g in normalized}
     presets_changed = False
@@ -196,15 +201,25 @@ def _sync_preset_groups(data_dir: Path, custom_presets: Dict[str, PresetEntry]) 
 
     _save_preset_groups(data_dir, normalized)
 
-    merged = []
-    for group in normalized:
-        presets = [
-            {"id": entry.id, "name": entry.name}
-            for entry in custom_presets.values()
-            if entry.group_id == group.get("id")
-        ]
-        merged.append({"id": group.get("id"), "name": group.get("name", "未命名组"), "presets": presets})
-    return merged
+    _save_preset_groups(data_dir, normalized)
+    return normalized
+
+
+def _entries_from_groups(groups: List[Dict[str, object]]) -> List[PresetEntry]:
+    entries: List[PresetEntry] = []
+    for group in groups:
+        content = (group.get("prompt") or "").strip()
+        if not content:
+            continue
+        entries.append(
+            PresetEntry(
+                id=group.get("id", uuid.uuid4().hex[:8]),
+                name=group.get("name", "未命名组"),
+                content=content,
+                group_id=group.get("id", ""),
+            )
+        )
+    return entries
 
 
 def _manual_group_file(data_dir: Path) -> Path:
@@ -653,67 +668,57 @@ def _render(
 
       <section class="preset-panel">
         <div style="display:flex;justify-content:space-between;align-items:center;">
-          <h3>预设管理</h3>
-          <span class="chip">{{ preset_entries|length }} 条</span>
+          <h3>预设组</h3>
+          <span class="chip">{{ preset_groups|length }} 组</span>
         </div>
-        <div class="muted">条目只能归属于预设组，聊天时仅勾选分组即可使用其中全部条目。</div>
+        <div class="muted">预设栏完全用于分组管理，每个预设组有一段独立的提示，聊天时勾选分组即可套用对应文本。</div>
         <details class="modal-card" open>
-          <summary>新增 / 编辑预设条目</summary>
+          <summary>新增预设组</summary>
           <div class="modal-body">
-            <form method="post" action="{{ url_for('save_preset') }}" class="form-grid">
-              <select name="entry_id">
-                <option value="">新建条目</option>
-                {% for entry in preset_entries %}<option value="{{ entry.id }}">{{ entry.name }}｜{{ entry.group_id }}</option>{% endfor %}
-              </select>
-              <input name="preset_name" placeholder="名称" required />
-              <textarea name="preset_content" placeholder="内容说明（会直接作为风格提示插入）" required></textarea>
-              <select name="preset_group_id">
-                <option value="">选择分组</option>
-                {% for group in preset_groups %}<option value="{{ group.id }}">{{ group.name }}</option>{% endfor %}
-              </select>
-              <input name="preset_group_new" placeholder="或输入新组名称" />
-              <button class="secondary" type="submit">保存 / 更新</button>
-            </form>
-          </div>
-        </details>
-        <details class="modal-card">
-          <summary>删除预设条目</summary>
-          <div class="modal-body">
-            <form method="post" action="{{ url_for('delete_preset') }}" class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(220px,1fr));">
-              <select name="entry_id" required>
-                <option value="">选择要删除的条目</option>
-                {% for entry in preset_entries %}<option value="{{ entry.id }}">{{ entry.name }}｜{{ entry.group_id }}</option>{% endfor %}
-              </select>
-              <button class="secondary" type="submit">删除条目</button>
-            </form>
-          </div>
-        </details>
-        <details class="modal-card">
-          <summary>管理预设组</summary>
-          <div class="modal-body">
-            <form method="post" action="{{ url_for('manage_preset_group') }}" class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px,1fr));">
-              <input name="group_name" placeholder="新增组名" required />
+            <form method="post" action="{{ url_for('manage_preset_group') }}" class="form-grid">
+              <input name="group_name" placeholder="组名称" required />
+              <textarea name="group_prompt" placeholder="预设内容（将作为系统提示注入）"></textarea>
               <input type="hidden" name="action" value="add" />
-              <button class="secondary" type="submit">新增组</button>
+              <button class="secondary" type="submit">创建预设组</button>
             </form>
-            <form method="post" action="{{ url_for('manage_preset_group') }}" class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px,1fr));">
-              <select name="group_id" required>
-                <option value="">选择组</option>
-                {% for group in preset_groups %}<option value="{{ group.id }}">{{ group.name }}</option>{% endfor %}
-              </select>
-              <input name="group_name" placeholder="新名称" required />
-              <input type="hidden" name="action" value="rename" />
-              <button class="secondary" type="submit">重命名</button>
-            </form>
+          </div>
+        </details>
+        <details class="modal-card" open>
+          <summary>编辑预设组内容</summary>
+          <div class="modal-body" style="display:flex;flex-direction:column;gap:12px;">
+            {% for group in preset_groups %}
+              <div style="display:flex;flex-direction:column;gap:8px;border:1px solid var(--border);border-radius:10px;padding:10px;background:var(--bg);
+              ">
+                <form method="post" action="{{ url_for('manage_preset_group') }}" class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px,1fr));">
+                  <input type="hidden" name="group_id" value="{{ group.id }}" />
+                  <input name="group_name" value="{{ group.name }}" placeholder="组名称" required />
+                  <textarea name="group_prompt" placeholder="预设内容" style="grid-column:1/-1;min-height:120px;">{{ group.prompt }}</textarea>
+                  <input type="hidden" name="action" value="update" />
+                  <div style="display:flex;gap:8px;justify-content:flex-end;grid-column:1/-1;">
+                    <button class="secondary" type="submit">保存</button>
+                  </div>
+                </form>
+                {% if group.id != 'ungrouped' %}
+                  <form method="post" action="{{ url_for('manage_preset_group') }}" onsubmit="return confirm('删除该预设组？');" style="display:flex;justify-content:flex-end;">
+                    <input type="hidden" name="group_id" value="{{ group.id }}" />
+                    <input type="hidden" name="action" value="delete" />
+                    <button class="secondary" type="submit">删除</button>
+                  </form>
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
+        </details>
+        <details class="modal-card">
+          <summary>快速删除</summary>
+          <div class="modal-body">
             <form method="post" action="{{ url_for('manage_preset_group') }}" class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px,1fr));">
               <select name="group_id" required>
                 <option value="">选择要删除的组</option>
-                {% for group in preset_groups %}
-                  {% if group.id != 'ungrouped' %}<option value="{{ group.id }}">{{ group.name }}</option>{% endif %}
-                {% endfor %}
+                {% for group in preset_groups %}{% if group.id != 'ungrouped' %}<option value="{{ group.id }}">{{ group.name }}</option>{% endif %}{% endfor %}
               </select>
               <input type="hidden" name="action" value="delete" />
-              <button class="secondary" type="submit">删除组</button>
+              <button class="secondary" type="submit" onclick="return confirm('删除该预设组？');">删除</button>
             </form>
           </div>
         </details>
@@ -802,8 +807,12 @@ def send_message():
     active.preset_group_ids = preset_group_ids
     active.messages.append(ChatMessage(role="user", content=user_message))
 
-    custom_presets = load_custom_presets(DATA_DIR)
-    chosen_entries = [entry for entry in custom_presets.values() if entry.group_id in set(preset_group_ids)]
+    preset_groups = _sync_preset_groups(DATA_DIR, load_custom_presets(DATA_DIR))
+    chosen_entries = [
+        entry
+        for entry in _entries_from_groups(preset_groups)
+        if entry.group_id in set(preset_group_ids)
+    ]
 
     try:
         reply = _build_chat_reply(active, user_message, chosen_entries, settings, manual_groups)
@@ -881,23 +890,27 @@ def manage_preset_group():
 
     if action == "add":
         name = (request.form.get("group_name") or "").strip()
+        prompt = (request.form.get("group_prompt") or "").strip()
         if not name:
             flash("请输入组名称。")
             return redirect(url_for("index"))
         if any(g.get("name") == name for g in groups):
             flash("已存在同名预设组。")
             return redirect(url_for("index"))
-        groups.append({"id": uuid.uuid4().hex[:8], "name": name})
+        groups.append({"id": uuid.uuid4().hex[:8], "name": name, "prompt": prompt})
         message = f"已新增预设组：{name}"
-    elif action == "rename":
+    elif action in {"rename", "update"}:
         group_id = request.form.get("group_id") or ""
         new_name = (request.form.get("group_name") or "").strip()
+        prompt = (request.form.get("group_prompt") or "").strip()
         target = next((g for g in groups if g.get("id") == group_id), None)
         if not target:
-            flash("未找到要重命名的预设组。")
+            flash("未找到要修改的预设组。")
             return redirect(url_for("index"))
-        target["name"] = new_name or target.get("name", "")
-        message = f"已重命名预设组：{target['name']}"
+        if new_name:
+            target["name"] = new_name
+        target["prompt"] = prompt
+        message = f"已更新预设组：{target['name']}"
     elif action == "delete":
         group_id = request.form.get("group_id") or ""
         if group_id == "ungrouped":
