@@ -1550,8 +1550,29 @@ def save_api_settings():
     return _render(message="已保存 API 配置信息")
 
 
+def _ssl_context():
+    """Return an SSL context if HTTPS is requested via environment variables."""
+
+    ssl_cert = os.environ.get("LLM_MAILER_SSL_CERT")
+    ssl_key = os.environ.get("LLM_MAILER_SSL_KEY")
+    if ssl_cert and ssl_key:
+        return ssl_cert, ssl_key
+
+    # Fallback to Werkzeug's adhoc certificate for quick local testing.
+    ssl_mode = (os.environ.get("LLM_MAILER_SSL") or "").lower()
+    if ssl_mode in {"1", "true", "on", "adhoc"}:
+        return "adhoc"
+
+    return None
+
+
 def main() -> None:
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), debug=False)
+    app.run(
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 8000)),
+        debug=False,
+        ssl_context=_ssl_context(),
+    )
 
 
 if __name__ == "__main__":

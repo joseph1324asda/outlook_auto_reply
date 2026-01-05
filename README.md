@@ -11,6 +11,8 @@ LLM-powered Outlook assistant with preset-group replies, manual libraries, and a
    ```bash
    python -m llm_mailer.web_app
    ```
+   - Set `LLM_MAILER_SSL_CERT` and `LLM_MAILER_SSL_KEY` to run with your own certificate, or set `LLM_MAILER_SSL=adhoc` to let Flask
+     generate a temporary self-signed certificate for quick local testing.
 
 ## Outlook add-in
 1. Ensure the server is reachable at `https://localhost:8000` (use a dev certificate or tunnel for HTTPS if Outlook requires it).
