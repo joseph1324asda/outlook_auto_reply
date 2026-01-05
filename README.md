@@ -11,10 +11,10 @@ LLM-powered Outlook assistant with preset-group replies and manual libraries for
    ```bash
    python -m llm_mailer.web_app
    ```
-3. Open `https://localhost:8000/outlook` (or your tunnel URL) to load the add-in taskpane UI.
+3. Open `http://26.26.26.1:8000/outlook` (or your tunnel URL/IP) to load the add-in taskpane UI.
 
 ## Outlook add-in
-1. Ensure the server is reachable at `https://localhost:8000` (use a dev certificate or tunnel for HTTPS if Outlook requires it).
+1. Ensure the server is reachable at `http://26.26.26.1:8000` (or the matching HTTPS tunnel/hostname if needed by your Outlook client).
 2. Sideload `docs/outlook-addin-manifest.xml` in Outlook (File → Manage Add-ins → Upload My Add-in) and confirm the taskpane button appears on read/compose surfaces.
 3. Open the taskpane to access the Outlook-focused UI:
    - Choose preset groups, optionally add a custom request, and click **Generate reply**.
