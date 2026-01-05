@@ -99,6 +99,7 @@
     <Resources>
       <bt:Images>
 <<<<<<< HEAD
+<<<<<<< HEAD
         <bt:Image id="icon16" DefaultValue="http://26.26.26.1:8000/static/icon-16.svg"/>
         <bt:Image id="icon32" DefaultValue="http://26.26.26.1:8000/static/icon-32.svg"/>
         <bt:Image id="icon80" DefaultValue="http://26.26.26.1:8000/static/icon-80.svg"/>
@@ -113,6 +114,15 @@
         <bt:Url id="functionfile" DefaultValue="http://26.26.26.1:8000/outlook"/>
         <bt:Url id="taskpaneUrl" DefaultValue="http://26.26.26.1:8000/outlook"/>
 =======
+        <bt:Url id="functionfile" DefaultValue="https://localhost:8000/outlook" />
+        <bt:Url id="taskpaneUrl" DefaultValue="https://localhost:8000/outlook" />
+>>>>>>> parent of 9eb9b25 (123)
+=======
+        <bt:Image id="icon16" DefaultValue="https://localhost:8000/static/icon-16.svg" />
+        <bt:Image id="icon32" DefaultValue="https://localhost:8000/static/icon-32.svg" />
+        <bt:Image id="icon80" DefaultValue="https://localhost:8000/static/icon-80.svg" />
+      </bt:Images>
+      <bt:Urls>
         <bt:Url id="functionfile" DefaultValue="https://localhost:8000/outlook" />
         <bt:Url id="taskpaneUrl" DefaultValue="https://localhost:8000/outlook" />
 >>>>>>> parent of 9eb9b25 (123)
