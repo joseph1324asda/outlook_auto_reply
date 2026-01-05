@@ -1,121 +1,161 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0" xmlns:mailappor="http://schemas.microsoft.com/office/mailappversionoverrides/1.0" xsi:type="MailApp">
+<OfficeApp
+  xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
+  xsi:type="MailApp">
+
   <Id>0f2e5dc7-9a41-4b6f-9bc9-48e1142118e5</Id>
   <Version>1.0.0.0</Version>
   <ProviderName>LLM Mailer</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
-  <DisplayName DefaultValue="LLM Outlook Auto Reply" />
-  <Description DefaultValue="Generate Outlook replies from preset groups with one click." />
-  <IconUrl DefaultValue="https://localhost:8000/static/icon-32.svg" />
-  <HighResolutionIconUrl DefaultValue="https://localhost:8000/static/icon-80.svg" />
-  <SupportUrl DefaultValue="https://localhost:8000/outlook/settings" />
+
+  <DisplayName DefaultValue="LLM Outlook Auto Reply"/>
+  <Description DefaultValue="Generate Outlook replies from preset groups with one click."/>
+
+  <!-- 建议：主图标也给 32 和 80（仍然 SVG） -->
+  <IconUrl DefaultValue="https://localhost:8000/static/icon-32.svg"/>
+  <HighResolutionIconUrl DefaultValue="https://localhost:8000/static/icon-80.svg"/>
+  <SupportUrl DefaultValue="https://localhost:8000/outlook/settings"/>
+
   <AppDomains>
     <AppDomain>https://localhost:8000</AppDomain>
   </AppDomains>
+
   <Hosts>
-    <Host Name="Mailbox" />
+    <Host Name="Mailbox"/>
   </Hosts>
+
   <Requirements>
     <Sets>
-      <Set Name="Mailbox" MinVersion="1.3" />
+      <Set Name="Mailbox" MinVersion="1.3"/>
     </Sets>
   </Requirements>
+
   <FormSettings>
     <Form xsi:type="ItemRead">
       <DesktopSettings>
-        <SourceLocation DefaultValue="https://localhost:8000/outlook" />
+        <SourceLocation DefaultValue="https://localhost:8000/outlook"/>
+        <RequestedHeight>450</RequestedHeight>
       </DesktopSettings>
     </Form>
+
     <Form xsi:type="ItemEdit">
       <DesktopSettings>
-        <SourceLocation DefaultValue="https://localhost:8000/outlook" />
+        <SourceLocation DefaultValue="https://localhost:8000/outlook"/>
       </DesktopSettings>
     </Form>
   </FormSettings>
+
   <Permissions>ReadWriteItem</Permissions>
+
   <Rule xsi:type="RuleCollection" Mode="Or">
-    <Rule xsi:type="ItemIs" ItemType="Message" FormType="ReadOrEdit" />
+    <Rule xsi:type="ItemIs" ItemType="Message" FormType="ReadOrEdit"/>
   </Rule>
+
   <DisableEntityHighlighting>false</DisableEntityHighlighting>
-  <VersionOverrides xmlns="http://schemas.microsoft.com/office/mailappversionoverrides/1.0" xsi:type="VersionOverridesV1_0">
+
+  <!-- 关键：这里的 xmlns 不要带 /1.0 -->
+  <VersionOverrides
+    xmlns="http://schemas.microsoft.com/office/mailappversionoverrides"
+    xsi:type="VersionOverridesV1_0">
+
     <Requirements>
       <bt:Sets DefaultMinVersion="1.5">
-        <bt:Set Name="Mailbox" />
+        <bt:Set Name="Mailbox"/>
       </bt:Sets>
     </Requirements>
+
     <Hosts>
       <Host xsi:type="MailHost">
         <DesktopFormFactor>
-          <FunctionFile resid="functionfile" />
+
+          <FunctionFile resid="functionfile"/>
+
+          <!-- 读邮件界面按钮 -->
           <ExtensionPoint xsi:type="MessageReadCommandSurface">
             <OfficeTab id="TabDefault">
               <Group id="msgReadGroup">
-                <Label resid="groupLabel" />
+                <Label resid="groupLabel"/>
+
                 <Control xsi:type="Button" id="showTaskpaneButton">
-                  <Label resid="buttonLabel" />
+                  <Label resid="buttonLabel"/>
                   <Supertip>
-                    <Title resid="buttonLabel" />
-                    <Description resid="superTip" />
+                    <Title resid="buttonLabel"/>
+                    <Description resid="superTip"/>
                   </Supertip>
+
+                  <!-- 必须提供 16/32/80 三个 size -->
                   <Icon>
-                    <bt:Image size="16" resid="icon16" />
-                    <bt:Image size="32" resid="icon32" />
-                    <bt:Image size="80" resid="icon80" />
+                    <bt:Image size="16" resid="icon16"/>
+                    <bt:Image size="32" resid="icon32"/>
+                    <bt:Image size="80" resid="icon80"/>
                   </Icon>
+
+                  <!-- V1_0 这里不要 TaskpaneId，只保留 SourceLocation -->
                   <Action xsi:type="ShowTaskpane">
-                    <TaskpaneId>ButtonId1</TaskpaneId>
-                    <SourceLocation resid="taskpaneUrl" />
+                    <SourceLocation resid="taskpaneUrl"/>
                   </Action>
                 </Control>
+
               </Group>
             </OfficeTab>
           </ExtensionPoint>
+
+          <!-- 写邮件界面按钮 -->
           <ExtensionPoint xsi:type="MessageComposeCommandSurface">
             <OfficeTab id="TabDefault">
               <Group id="msgComposeGroup">
-                <Label resid="groupLabel" />
+                <Label resid="groupLabel"/>
+
                 <Control xsi:type="Button" id="showTaskpaneButtonCompose">
-                  <Label resid="buttonLabel" />
+                  <Label resid="buttonLabel"/>
                   <Supertip>
-                    <Title resid="buttonLabel" />
-                    <Description resid="superTip" />
+                    <Title resid="buttonLabel"/>
+                    <Description resid="superTip"/>
                   </Supertip>
+
                   <Icon>
-                    <bt:Image size="16" resid="icon16" />
-                    <bt:Image size="32" resid="icon32" />
-                    <bt:Image size="80" resid="icon80" />
+                    <bt:Image size="16" resid="icon16"/>
+                    <bt:Image size="32" resid="icon32"/>
+                    <bt:Image size="80" resid="icon80"/>
                   </Icon>
+
                   <Action xsi:type="ShowTaskpane">
-                    <TaskpaneId>ButtonId2</TaskpaneId>
-                    <SourceLocation resid="taskpaneUrl" />
+                    <SourceLocation resid="taskpaneUrl"/>
                   </Action>
                 </Control>
+
               </Group>
             </OfficeTab>
           </ExtensionPoint>
+
         </DesktopFormFactor>
       </Host>
     </Hosts>
+
     <Resources>
       <bt:Images>
-        <bt:Image id="icon16" DefaultValue="https://localhost:8000/static/icon-16.svg" />
-        <bt:Image id="icon32" DefaultValue="https://localhost:8000/static/icon-32.svg" />
-        <bt:Image id="icon80" DefaultValue="https://localhost:8000/static/icon-80.svg" />
+        <bt:Image id="icon16" DefaultValue="https://localhost:8000/static/icon-16.svg"/>
+        <bt:Image id="icon32" DefaultValue="https://localhost:8000/static/icon-32.svg"/>
+        <bt:Image id="icon80" DefaultValue="https://localhost:8000/static/icon-80.svg"/>
       </bt:Images>
+
       <bt:Urls>
-        <bt:Url id="functionfile" DefaultValue="https://localhost:8000/outlook" />
-        <bt:Url id="taskpaneUrl" DefaultValue="https://localhost:8000/outlook" />
+        <bt:Url id="functionfile" DefaultValue="https://localhost:8000/outlook"/>
+        <bt:Url id="taskpaneUrl" DefaultValue="https://localhost:8000/outlook"/>
       </bt:Urls>
+
       <bt:ShortStrings>
-        <bt:String id="groupLabel" DefaultValue="LLM Reply" />
-        <bt:String id="buttonLabel" DefaultValue="Preset reply" />
+        <bt:String id="groupLabel" DefaultValue="LLM Reply"/>
+        <bt:String id="buttonLabel" DefaultValue="Preset reply"/>
       </bt:ShortStrings>
+
       <bt:LongStrings>
-        <bt:String id="superTip" DefaultValue="Open the preset reply window with one-click generation." />
+        <bt:String id="superTip" DefaultValue="Open the preset reply window with one-click generation."/>
       </bt:LongStrings>
     </Resources>
-    <VersionOverrides>
-      <VersionOverride Version="1.0" />
-    </VersionOverrides>
+
   </VersionOverrides>
+
 </OfficeApp>
