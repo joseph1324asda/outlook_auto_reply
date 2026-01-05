@@ -33,9 +33,13 @@ class Settings:
 def load_saved_settings(data_dir: Path) -> Settings:
     settings_file = data_dir / "app_settings.json"
     if settings_file.exists():
-        with settings_file.open("r", encoding="utf-8") as f:
-            data = json.load(f)
-        return Settings.from_dict(data)
+        try:
+            with settings_file.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+            return Settings.from_dict(data)
+        except json.JSONDecodeError:
+            # Ignore corrupted settings and fall back to environment defaults.
+            pass
     return Settings.from_env()
 
 

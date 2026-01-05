@@ -26,7 +26,10 @@ def load_history(data_dir: Path) -> List[HistoryEntry]:
     history_file = data_dir / "history.json"
     if not history_file.exists():
         return []
-    data = json.loads(history_file.read_text(encoding="utf-8")) or []
+    try:
+        data = json.loads(history_file.read_text(encoding="utf-8")) or []
+    except json.JSONDecodeError:
+        data = []
     entries: List[HistoryEntry] = []
     for raw in data:
         entries.append(

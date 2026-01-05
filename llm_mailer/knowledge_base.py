@@ -25,7 +25,10 @@ class KnowledgeBase:
         for path in paths:
             if not path.exists():
                 continue
-            loaded = json.loads(path.read_text(encoding="utf-8")) or []
+            try:
+                loaded = json.loads(path.read_text(encoding="utf-8")) or []
+            except json.JSONDecodeError:
+                continue
             for entry in loaded:
                 docs.append(
                     Document(

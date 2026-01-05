@@ -81,7 +81,10 @@ def _load_chats(data_dir: Path) -> List[ChatSession]:
     path = _chat_file(data_dir)
     if not path.exists():
         return []
-    raw = json.loads(path.read_text(encoding="utf-8")) or []
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8")) or []
+    except json.JSONDecodeError:
+        raw = []
     sessions: List[ChatSession] = []
     for item in raw:
         messages = [ChatMessage(role=m.get("role", "user"), content=m.get("content", "")) for m in item.get("messages", [])]

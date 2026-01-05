@@ -78,8 +78,11 @@ def load_custom_presets(data_dir: Path) -> Dict[str, StylePreset]:
     presets_file = data_dir / "presets.json"
     if not presets_file.exists():
         return {}
-    with presets_file.open("r", encoding="utf-8") as f:
-        data = json.load(f)
+    try:
+        with presets_file.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+    except json.JSONDecodeError:
+        return {}
     return {key: _deserialize_preset(raw) for key, raw in data.items()}
 
 
