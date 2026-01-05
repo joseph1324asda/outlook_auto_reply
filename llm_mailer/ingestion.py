@@ -24,8 +24,17 @@ def extract_pdf_text(pdf_path: Path, max_chars: int = 8000) -> str:
     return content
 
 
-def append_manual_from_pdf(pdf_path: Path, data_dir: Path) -> dict:
-    """Append a PDF as a manual entry into manuals.json under data_dir."""
+def append_manual_from_pdf(
+    pdf_path: Path, data_dir: Path, *, kind: str | None = None, title: str | None = None
+) -> dict:
+    """Append a PDF as a manual entry into manuals.json under data_dir.
+
+    Args:
+        pdf_path: Path to the PDF file to ingest.
+        data_dir: Directory containing manuals.json.
+        kind: Optional manual group/kind name to store on the entry.
+        title: Optional title override; defaults to the PDF stem.
+    """
 
     data_dir.mkdir(parents=True, exist_ok=True)
     manuals_path = data_dir / "manuals.json"
@@ -39,8 +48,8 @@ def append_manual_from_pdf(pdf_path: Path, data_dir: Path) -> dict:
     content = extract_pdf_text(pdf_path)
     entry = {
         "id": f"PDF-{int(time.time())}",
-        "title": pdf_path.stem,
-        "kind": "manual",
+        "title": title or pdf_path.stem,
+        "kind": kind or "manual",
         "content": content,
         "source": str(pdf_path),
     }
