@@ -1569,7 +1569,7 @@ def _ssl_context():
 def main() -> None:
     app.run(
         host="0.0.0.0",
-        port=int(os.environ.get("PORT", 8000)),
+        port=int(os.environ.get("PORT", 7999)),
         debug=False,
         ssl_context=_ssl_context(),
     )

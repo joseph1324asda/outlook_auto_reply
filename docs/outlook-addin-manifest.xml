@@ -14,12 +14,12 @@
   <Description DefaultValue="Generate Outlook replies from preset groups with one click."/>
 
   <!-- 建议：主图标也给 32 和 80（仍然 SVG） -->
-  <IconUrl DefaultValue="https://localhost:8000/static/icon-32.svg"/>
-  <HighResolutionIconUrl DefaultValue="https://localhost:8000/static/icon-80.svg"/>
-  <SupportUrl DefaultValue="https://localhost:8000/outlook/settings"/>
+  <IconUrl DefaultValue="https://localhost:7999/static/icon-32.svg"/>
+  <HighResolutionIconUrl DefaultValue="https://localhost:7999/static/icon-80.svg"/>
+  <SupportUrl DefaultValue="https://localhost:7999/outlook/settings"/>
 
   <AppDomains>
-    <AppDomain>https://localhost:8000</AppDomain>
+    <AppDomain>https://localhost:7999</AppDomain>
   </AppDomains>
 
   <Hosts>
@@ -35,14 +35,14 @@
   <FormSettings>
     <Form xsi:type="ItemRead">
       <DesktopSettings>
-        <SourceLocation DefaultValue="https://localhost:8000/outlook"/>
+        <SourceLocation DefaultValue="https://localhost:7999/outlook"/>
         <RequestedHeight>450</RequestedHeight>
       </DesktopSettings>
     </Form>
 
     <Form xsi:type="ItemEdit">
       <DesktopSettings>
-        <SourceLocation DefaultValue="https://localhost:8000/outlook"/>
+        <SourceLocation DefaultValue="https://localhost:7999/outlook"/>
       </DesktopSettings>
     </Form>
   </FormSettings>
@@ -136,14 +136,14 @@
 
     <Resources>
       <bt:Images>
-        <bt:Image id="icon16" DefaultValue="https://localhost:8000/static/icon-16.svg"/>
-        <bt:Image id="icon32" DefaultValue="https://localhost:8000/static/icon-32.svg"/>
-        <bt:Image id="icon80" DefaultValue="https://localhost:8000/static/icon-80.svg"/>
+        <bt:Image id="icon16" DefaultValue="https://localhost:7999/static/icon-16.svg"/>
+        <bt:Image id="icon32" DefaultValue="https://localhost:7999/static/icon-32.svg"/>
+        <bt:Image id="icon80" DefaultValue="https://localhost:7999/static/icon-80.svg"/>
       </bt:Images>
 
       <bt:Urls>
-        <bt:Url id="functionfile" DefaultValue="https://localhost:8000/outlook"/>
-        <bt:Url id="taskpaneUrl" DefaultValue="https://localhost:8000/outlook"/>
+        <bt:Url id="functionfile" DefaultValue="https://localhost:7999/outlook"/>
+        <bt:Url id="taskpaneUrl" DefaultValue="https://localhost:7999/outlook"/>
       </bt:Urls>
 
       <bt:ShortStrings>
