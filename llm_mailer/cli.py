@@ -76,6 +76,9 @@ def main() -> None:
         api_key=args.api_key or env_settings.api_key,
         model=args.model or env_settings.model,
         base_url=args.base_url or env_settings.base_url,
+        temperature=env_settings.temperature,
+        top_p=env_settings.top_p,
+        top_k=env_settings.top_k,
     )
 
     reply = draft_email_reply(
