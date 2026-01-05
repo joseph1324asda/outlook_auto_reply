@@ -477,7 +477,21 @@ def save_api_settings():
 
 
 def main() -> None:
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), debug=False)
+    ssl_cert = os.environ.get("LLM_MAILER_SSL_CERT")
+    ssl_key = os.environ.get("LLM_MAILER_SSL_KEY")
+    ssl_context = None
+
+    if ssl_cert and ssl_key:
+        ssl_context = (ssl_cert, ssl_key)
+    elif os.environ.get("LLM_MAILER_SSL_ADHOC"):
+        ssl_context = "adhoc"
+
+    app.run(
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 8000)),
+        debug=False,
+        ssl_context=ssl_context,
+    )
 
 
 if __name__ == "__main__":

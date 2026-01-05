@@ -7,7 +7,7 @@ LLM-powered Outlook assistant with preset-group replies and manual libraries for
    ```bash
    pip install -r requirements.txt
    ```
-2. Start the Flask server (defaults to port 8000):
+2. Start the Flask server (defaults to port 8000). Set `LLM_MAILER_SSL_CERT` and `LLM_MAILER_SSL_KEY` to enable HTTPS, or `LLM_MAILER_SSL_ADHOC=1` for a temporary self-signed cert:
    ```bash
    python -m llm_mailer.web_app
    ```
