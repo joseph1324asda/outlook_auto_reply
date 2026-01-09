@@ -12,6 +12,7 @@ class PromptContext:
     email_summary: str
     customer_priority: str | None = None
     attachments: List[str] | None = None
+    user_request: str | None = None
 
 
 class PromptBuilder:
@@ -27,6 +28,7 @@ class PromptBuilder:
         refs = "\n".join(ref_lines) if ref_lines else "- (no matches; answer from general knowledge)"
 
         attachments = ", ".join(context.attachments or []) or "none"
+        user_request = context.user_request or "none"
 
         return f"""
 You are an email assistant who must produce a clear, fluent reply in English.
@@ -36,6 +38,7 @@ You are an email assistant who must produce a clear, fluent reply in English.
 User email summary: {context.email_summary}
 Customer priority: {context.customer_priority or 'not specified'}
 Attachments: {attachments}
+Additional user request: {user_request}
 
 Knowledge-base matches:
 {refs}

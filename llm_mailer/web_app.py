@@ -363,6 +363,7 @@ Provide the next reply in English and cite any helpful manual points.
 def _build_outlook_reply(
     subject: str,
     body: str,
+    user_request: str,
     preset_group_ids: List[str],
     settings: Settings,
 ) -> str:
@@ -371,8 +372,13 @@ def _build_outlook_reply(
 
     kb = KnowledgeBase.from_json_files([DATA_DIR / "manuals.json", DATA_DIR / "cases.json"])
     outlook_context = f"Subject: {subject or '(no subject)'}\n\nBody:\n{body or '(no body provided)'}"
+    if user_request.strip():
+        outlook_context = f"{outlook_context}\n\nUser request: {user_request.strip()}"
     references = kb.search(outlook_context, limit=5)
-    prompt = PromptBuilder(style).build(PromptContext(email_summary=outlook_context), references)
+    prompt = PromptBuilder(style).build(
+        PromptContext(email_summary=outlook_context, user_request=user_request.strip() or None),
+        references,
+    )
 
     provider = get_provider(settings)
     print(
@@ -861,6 +867,7 @@ def _render_outlook(
     error: str | None = None,
     subject: str = "",
     body: str = "",
+    request_text: str = "",
     selected_groups: list[str] | None = None,
 ):
     custom_presets = load_custom_presets(DATA_DIR)
@@ -940,8 +947,12 @@ def _render_outlook(
           <label for=\"body\">Email body</label>
           <textarea id=\"body\" name=\"body\" placeholder=\"Body from Outlook or paste content here...\">{{ body }}</textarea>
         </div>
+        <div class=\"grid\">
+          <label for=\"request\">Additional request</label>
+          <textarea id=\"request\" name=\"request\" placeholder=\"Example: reply in Spanish, highlight key risks, or ask for missing info...\">{{ request_text }}</textarea>
+        </div>
         <div class=\"inline\">
-          <div class=\"muted\">Outlook-facing form keeps only preset selection and one-click generation.</div>
+          <div class=\"muted\">Outlook-facing form keeps preset selection, message reading, and extra instructions.</div>
           <button type=\"submit\" style=\"max-width:220px;\">Generate reply</button>
         </div>
       </form>
@@ -986,6 +997,7 @@ def _render_outlook(
         error=error,
         subject=subject,
         body=body,
+        request_text=request_text,
         selected_groups=selected_groups,
         settings=settings,
     )
@@ -1000,11 +1012,12 @@ def outlook_home():
 def outlook_generate():
     subject = (request.form.get("subject") or "").strip()
     body = (request.form.get("body") or "").strip()
+    request_text = (request.form.get("request") or "").strip()
     preset_group_ids = request.form.getlist("preset_groups")
     settings = _settings_from_form(request.form)
 
     try:
-        reply = _build_outlook_reply(subject, body, preset_group_ids, settings)
+        reply = _build_outlook_reply(subject, body, request_text, preset_group_ids, settings)
     except Exception as exc:  # noqa: BLE001
         append_history(
             DATA_DIR,
@@ -1021,6 +1034,7 @@ def outlook_generate():
             error=str(exc),
             subject=subject,
             body=body,
+            request_text=request_text,
             selected_groups=preset_group_ids,
         )
 
@@ -1044,6 +1058,7 @@ def outlook_generate():
         reply=reply,
         subject=subject,
         body=body,
+        request_text=request_text,
         selected_groups=preset_group_ids,
     )
 
@@ -1551,7 +1566,21 @@ def save_api_settings():
 
 
 def main() -> None:
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), debug=False)
+    ssl_cert = os.environ.get("LLM_MAILER_SSL_CERT")
+    ssl_key = os.environ.get("LLM_MAILER_SSL_KEY")
+    ssl_context = None
+
+    if ssl_cert and ssl_key:
+        ssl_context = (ssl_cert, ssl_key)
+    elif os.environ.get("LLM_MAILER_SSL_ADHOC"):
+        ssl_context = "adhoc"
+
+    app.run(
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 8000)),
+        debug=False,
+        ssl_context=ssl_context,
+    )
 
 
 if __name__ == "__main__":
