@@ -1012,7 +1012,13 @@ def _render_outlook(
                 });
               }
             }
-            if (item.body && item.body.getAsync) {
+            if (item.getReplyBodyAsync) {
+              item.getReplyBodyAsync(function(res) {
+                if (res.status === Office.AsyncResultStatus.Succeeded) {
+                  maybeFillBody(res.value || '');
+                }
+              });
+            } else if (item.body && item.body.getAsync) {
               item.body.getAsync('text', { asyncContext: null }, function(res) {
                 if (res.status === Office.AsyncResultStatus.Succeeded) {
                   maybeFillBody(res.value || '');
