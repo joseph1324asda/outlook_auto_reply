@@ -14,6 +14,20 @@ LLM-powered Outlook assistant with preset-group replies, manual libraries, and a
    - Set `LLM_MAILER_SSL_CERT` and `LLM_MAILER_SSL_KEY` to run with your own certificate, or set `LLM_MAILER_SSL=adhoc` to let Flask
      generate a temporary self-signed certificate for quick local testing.
 
+### One-click local start scripts
+- **Windows (PowerShell):**
+  ```powershell
+  ./start.ps1
+  ```
+  Add `--no-install` to skip dependency installation if you already ran `pip install -r requirements.txt`.
+- **macOS/Linux (bash):**
+  ```bash
+  ./start.sh
+  ```
+  Add `--no-install` to skip dependency installation if you already ran `pip install -r requirements.txt`.
+
+Both scripts set `LLM_MAILER_SSL=adhoc` and `PORT=7999` before launching the Flask server for Outlook-compatible HTTPS.
+
 ## Outlook add-in
 1. Ensure the server is reachable at `https://localhost:7999` (use a dev certificate or tunnel for HTTPS if Outlook requires it).
 2. Sideload `docs/outlook-addin-manifest.xml` in Outlook (File → Manage Add-ins → Upload My Add-in) and confirm the taskpane button appears on read/compose surfaces.
