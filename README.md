@@ -20,6 +20,11 @@ LLM-powered Outlook assistant with preset-group replies, manual libraries, and a
   ./start.ps1
   ```
   Add `--no-install` to skip dependency installation if you already ran `pip install -r requirements.txt`.
+- **Windows (Command Prompt):**
+  ```bat
+  start.bat
+  ```
+  Add `--no-install` to skip dependency installation if you already ran `pip install -r requirements.txt`.
 - **macOS/Linux (bash):**
   ```bash
   ./start.sh
