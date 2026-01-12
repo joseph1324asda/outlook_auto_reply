@@ -960,9 +960,40 @@ def _render_outlook(
           subjectField.value = value;
         }
       };
+      const extractFirstMessageBody = (value) => {
+        if (!value) {
+          return '';
+        }
+        const markers = [
+          /^\s*-{2,}\s*Original Message\s*-{2,}\s*$/m,
+          /^\s*-{2,}\s*原始邮件\s*-{2,}\s*$/m,
+          /^\s*On .* wrote:\s*$/m,
+          /^\s*From:\s*/m,
+          /^\s*Sent:\s*/m,
+          /^\s*To:\s*/m,
+          /^\s*Cc:\s*/m,
+          /^\s*Subject:\s*/m,
+          /^\s*发件人:\s*/m,
+          /^\s*发送时间:\s*/m,
+          /^\s*收件人:\s*/m,
+          /^\s*抄送:\s*/m,
+          /^\s*主题:\s*/m,
+          /^\s*时间:\s*/m,
+          /^\s*邮件号:\s*/m,
+        ];
+        let cutIndex = value.length;
+        for (const marker of markers) {
+          const match = value.match(marker);
+          if (match && match.index !== undefined) {
+            cutIndex = Math.min(cutIndex, match.index);
+          }
+        }
+        return value.slice(0, cutIndex).trim();
+      };
       const maybeFillBody = (value) => {
         if (value && !bodyField.value.trim()) {
-          bodyField.value = value;
+          const cleaned = extractFirstMessageBody(value);
+          bodyField.value = cleaned || value;
         }
       };
       if (window.Office && Office.onReady) {
