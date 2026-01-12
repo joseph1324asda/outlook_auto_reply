@@ -954,18 +954,44 @@ def _render_outlook(
     <script>
       const subjectField = document.getElementById('subject');
       const bodyField = document.getElementById('body');
+      const replyText = {{ (reply or '')|tojson }};
+      const maybeFillSubject = (value) => {
+        if (value && !subjectField.value) {
+          subjectField.value = value;
+        }
+      };
+      const maybeFillBody = (value) => {
+        if (value && !bodyField.value.trim()) {
+          bodyField.value = value;
+        }
+      };
       if (window.Office && Office.onReady) {
         Office.onReady(function(info) {
           try {
             const item = Office.context && Office.context.mailbox && Office.context.mailbox.item;
             if (!item) { return; }
-            if (item.subject && !subjectField.value) {
-              subjectField.value = item.subject;
+            if (item.subject) {
+              if (typeof item.subject === 'string') {
+                maybeFillSubject(item.subject);
+              } else if (item.subject.getAsync) {
+                item.subject.getAsync(function(res) {
+                  if (res.status === Office.AsyncResultStatus.Succeeded) {
+                    maybeFillSubject(res.value || '');
+                  }
+                });
+              }
             }
             if (item.body && item.body.getAsync) {
               item.body.getAsync('text', { asyncContext: null }, function(res) {
-                if (res.status === Office.AsyncResultStatus.Succeeded && !bodyField.value.trim()) {
-                  bodyField.value = res.value || '';
+                if (res.status === Office.AsyncResultStatus.Succeeded) {
+                  maybeFillBody(res.value || '');
+                }
+              });
+            }
+            if (replyText && item.body && item.body.setAsync) {
+              item.body.setAsync(replyText, { coercionType: Office.CoercionType.Text }, function(res) {
+                if (res.status !== Office.AsyncResultStatus.Succeeded) {
+                  console.warn('Failed to insert reply into Outlook.', res.error);
                 }
               });
             }
