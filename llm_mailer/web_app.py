@@ -959,10 +959,23 @@ def _render_outlook(
       const bodyField = document.getElementById('body');
       const replyText = {{ (reply or '')|tojson }};
       const insertButton = document.getElementById('insert-reply');
+      let officeReady = false;
+      let officeItem = null;
       const maybeFillSubject = (value) => {
         if (value && !subjectField.value) {
           subjectField.value = value;
         }
+      };
+      const htmlToText = (value) => {
+        if (!value) {
+          return '';
+        }
+        if (!value.includes('<')) {
+          return value;
+        }
+        const container = document.createElement('div');
+        container.innerHTML = value.replace(/<br\s*\/?>/gi, '\n');
+        return container.textContent || container.innerText || '';
       };
       const extractFirstMessageBody = (value) => {
         if (!value) {
@@ -996,7 +1009,7 @@ def _render_outlook(
       };
       const maybeFillBody = (value) => {
         if (value && !bodyField.value.trim()) {
-          const cleaned = extractFirstMessageBody(value);
+          const cleaned = extractFirstMessageBody(htmlToText(value));
           bodyField.value = cleaned || value;
         }
       };
@@ -1011,18 +1024,17 @@ def _render_outlook(
         return escaped.replace(/\n/g, '<br>');
       };
       const insertReplyIntoOutlook = () => {
-        if (!replyText || !window.Office || !Office.context || !Office.context.mailbox) {
+        if (!replyText || !officeReady || !officeItem || !officeItem.body || !officeItem.body.setAsync) {
           return;
         }
-        const item = Office.context.mailbox.item;
-        if (item && item.body && item.body.setAsync) {
-          const html = toHtml(replyText);
-          item.body.setAsync(html, { coercionType: Office.CoercionType.Html }, function(res) {
-            if (res.status !== Office.AsyncResultStatus.Succeeded) {
-              console.warn('Failed to insert reply into Outlook.', res.error);
-            }
-          });
-        }
+        const html = toHtml(replyText);
+        const supportsHtml = Office && Office.CoercionType && Office.CoercionType.Html;
+        const options = supportsHtml ? { coercionType: Office.CoercionType.Html } : { coercionType: Office.CoercionType.Text };
+        officeItem.body.setAsync(html, options, function(res) {
+          if (res.status !== Office.AsyncResultStatus.Succeeded) {
+            console.warn('Failed to insert reply into Outlook.', res.error);
+          }
+        });
       };
       if (insertButton) {
         insertButton.addEventListener('click', insertReplyIntoOutlook);
@@ -1030,27 +1042,28 @@ def _render_outlook(
       if (window.Office && Office.onReady) {
         Office.onReady(function(info) {
           try {
-            const item = Office.context && Office.context.mailbox && Office.context.mailbox.item;
-            if (!item) { return; }
-            if (item.subject) {
-              if (typeof item.subject === 'string') {
-                maybeFillSubject(item.subject);
-              } else if (item.subject.getAsync) {
-                item.subject.getAsync(function(res) {
+            officeReady = true;
+            officeItem = Office.context && Office.context.mailbox && Office.context.mailbox.item;
+            if (!officeItem) { return; }
+            if (officeItem.subject) {
+              if (typeof officeItem.subject === 'string') {
+                maybeFillSubject(officeItem.subject);
+              } else if (officeItem.subject.getAsync) {
+                officeItem.subject.getAsync(function(res) {
                   if (res.status === Office.AsyncResultStatus.Succeeded) {
                     maybeFillSubject(res.value || '');
                   }
                 });
               }
             }
-            if (item.getReplyBodyAsync) {
-              item.getReplyBodyAsync(function(res) {
+            if (officeItem.getReplyBodyAsync) {
+              officeItem.getReplyBodyAsync(function(res) {
                 if (res.status === Office.AsyncResultStatus.Succeeded) {
                   maybeFillBody(res.value || '');
                 }
               });
-            } else if (item.body && item.body.getAsync) {
-              item.body.getAsync('text', { asyncContext: null }, function(res) {
+            } else if (officeItem.body && officeItem.body.getAsync) {
+              officeItem.body.getAsync(Office.CoercionType.Text, function(res) {
                 if (res.status === Office.AsyncResultStatus.Succeeded) {
                   maybeFillBody(res.value || '');
                 }
