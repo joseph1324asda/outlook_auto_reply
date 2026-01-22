@@ -947,7 +947,10 @@ def _render_outlook(
       </form>
       {% if error %}<div class=\"error\">{{ error }}</div>{% endif %}
       <div class=\"card\">
-        <div class=\"muted\">Generated reply</div>
+        <div class=\"inline\" style=\"align-items:center;\">
+          <div class=\"muted\">Generated reply</div>
+          <button type=\"button\" id=\"insert-reply\" style=\"max-width:200px;\">Insert into Outlook</button>
+        </div>
         <div class=\"reply-box\">{{ reply or 'Pending generation...' }}</div>
       </div>
     </div>
@@ -955,6 +958,7 @@ def _render_outlook(
       const subjectField = document.getElementById('subject');
       const bodyField = document.getElementById('body');
       const replyText = {{ (reply or '')|tojson }};
+      const insertButton = document.getElementById('insert-reply');
       const maybeFillSubject = (value) => {
         if (value && !subjectField.value) {
           subjectField.value = value;
@@ -996,6 +1000,33 @@ def _render_outlook(
           bodyField.value = cleaned || value;
         }
       };
+      const toHtml = (value) => {
+        if (!value) {
+          return '';
+        }
+        const escaped = value
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+        return escaped.replace(/\n/g, '<br>');
+      };
+      const insertReplyIntoOutlook = () => {
+        if (!replyText || !window.Office || !Office.context || !Office.context.mailbox) {
+          return;
+        }
+        const item = Office.context.mailbox.item;
+        if (item && item.body && item.body.setAsync) {
+          const html = toHtml(replyText);
+          item.body.setAsync(html, { coercionType: Office.CoercionType.Html }, function(res) {
+            if (res.status !== Office.AsyncResultStatus.Succeeded) {
+              console.warn('Failed to insert reply into Outlook.', res.error);
+            }
+          });
+        }
+      };
+      if (insertButton) {
+        insertButton.addEventListener('click', insertReplyIntoOutlook);
+      }
       if (window.Office && Office.onReady) {
         Office.onReady(function(info) {
           try {
@@ -1022,13 +1053,6 @@ def _render_outlook(
               item.body.getAsync('text', { asyncContext: null }, function(res) {
                 if (res.status === Office.AsyncResultStatus.Succeeded) {
                   maybeFillBody(res.value || '');
-                }
-              });
-            }
-            if (replyText && item.body && item.body.setAsync) {
-              item.body.setAsync(replyText, { coercionType: Office.CoercionType.Text }, function(res) {
-                if (res.status !== Office.AsyncResultStatus.Succeeded) {
-                  console.warn('Failed to insert reply into Outlook.', res.error);
                 }
               });
             }
