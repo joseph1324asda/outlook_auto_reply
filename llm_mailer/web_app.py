@@ -957,10 +957,13 @@ def _render_outlook(
     <script>
       const subjectField = document.getElementById('subject');
       const bodyField = document.getElementById('body');
+      const presetForm = document.querySelector('form[action*="outlook/generate"]');
+      const presetInputs = document.querySelectorAll('input[name="preset_groups"]');
       const replyText = {{ (reply or '')|tojson }};
       const insertButton = document.getElementById('insert-reply');
       let officeReady = false;
       let officeItem = null;
+      let presetSubmitTimer = null;
       const maybeFillSubject = (value) => {
         if (value && !subjectField.value) {
           subjectField.value = value;
@@ -1039,6 +1042,24 @@ def _render_outlook(
       if (insertButton) {
         insertButton.addEventListener('click', insertReplyIntoOutlook);
       }
+      const schedulePresetSubmit = () => {
+        if (!presetForm) {
+          return;
+        }
+        if (presetSubmitTimer) {
+          window.clearTimeout(presetSubmitTimer);
+        }
+        presetSubmitTimer = window.setTimeout(() => {
+          if (presetForm.requestSubmit) {
+            presetForm.requestSubmit();
+          } else {
+            presetForm.submit();
+          }
+        }, 150);
+      };
+      presetInputs.forEach((input) => {
+        input.addEventListener('change', schedulePresetSubmit);
+      });
       if (window.Office && Office.onReady) {
         Office.onReady(function(info) {
           try {
