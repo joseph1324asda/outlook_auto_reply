@@ -947,25 +947,146 @@ def _render_outlook(
       </form>
       {% if error %}<div class=\"error\">{{ error }}</div>{% endif %}
       <div class=\"card\">
-        <div class=\"muted\">Generated reply</div>
+        <div class=\"inline\" style=\"align-items:center;\">
+          <div class=\"muted\">Generated reply</div>
+          <button type=\"button\" id=\"insert-reply\" style=\"max-width:200px;\">Insert into Outlook</button>
+        </div>
         <div class=\"reply-box\">{{ reply or 'Pending generation...' }}</div>
       </div>
     </div>
     <script>
       const subjectField = document.getElementById('subject');
       const bodyField = document.getElementById('body');
+      const presetForm = document.querySelector('form[action*="outlook/generate"]');
+      const presetInputs = document.querySelectorAll('input[name="preset_groups"]');
+      const replyText = {{ (reply or '')|tojson }};
+      const insertButton = document.getElementById('insert-reply');
+      let officeReady = false;
+      let officeItem = null;
+      let presetSubmitTimer = null;
+      const maybeFillSubject = (value) => {
+        if (value && !subjectField.value) {
+          subjectField.value = value;
+        }
+      };
+      const htmlToText = (value) => {
+        if (!value) {
+          return '';
+        }
+        if (!value.includes('<')) {
+          return value;
+        }
+        const container = document.createElement('div');
+        container.innerHTML = value.replace(/<br\s*\/?>/gi, '\n');
+        return container.textContent || container.innerText || '';
+      };
+      const extractFirstMessageBody = (value) => {
+        if (!value) {
+          return '';
+        }
+        const markers = [
+          /^\s*-{2,}\s*Original Message\s*-{2,}\s*$/m,
+          /^\s*-{2,}\s*原始邮件\s*-{2,}\s*$/m,
+          /^\s*On .* wrote:\s*$/m,
+          /^\s*From:\s*/m,
+          /^\s*Sent:\s*/m,
+          /^\s*To:\s*/m,
+          /^\s*Cc:\s*/m,
+          /^\s*Subject:\s*/m,
+          /^\s*发件人:\s*/m,
+          /^\s*发送时间:\s*/m,
+          /^\s*收件人:\s*/m,
+          /^\s*抄送:\s*/m,
+          /^\s*主题:\s*/m,
+          /^\s*时间:\s*/m,
+          /^\s*邮件号:\s*/m,
+        ];
+        let cutIndex = value.length;
+        for (const marker of markers) {
+          const match = value.match(marker);
+          if (match && match.index !== undefined) {
+            cutIndex = Math.min(cutIndex, match.index);
+          }
+        }
+        return value.slice(0, cutIndex).trim();
+      };
+      const maybeFillBody = (value) => {
+        if (value && !bodyField.value.trim()) {
+          const cleaned = extractFirstMessageBody(htmlToText(value));
+          bodyField.value = cleaned || value;
+        }
+      };
+      const toHtml = (value) => {
+        if (!value) {
+          return '';
+        }
+        const escaped = value
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+        return escaped.replace(/\n/g, '<br>');
+      };
+      const insertReplyIntoOutlook = () => {
+        if (!replyText || !officeReady || !officeItem || !officeItem.body || !officeItem.body.setAsync) {
+          return;
+        }
+        const html = toHtml(replyText);
+        const supportsHtml = Office && Office.CoercionType && Office.CoercionType.Html;
+        const options = supportsHtml ? { coercionType: Office.CoercionType.Html } : { coercionType: Office.CoercionType.Text };
+        officeItem.body.setAsync(html, options, function(res) {
+          if (res.status !== Office.AsyncResultStatus.Succeeded) {
+            console.warn('Failed to insert reply into Outlook.', res.error);
+          }
+        });
+      };
+      if (insertButton) {
+        insertButton.addEventListener('click', insertReplyIntoOutlook);
+      }
+      const schedulePresetSubmit = () => {
+        if (!presetForm) {
+          return;
+        }
+        if (presetSubmitTimer) {
+          window.clearTimeout(presetSubmitTimer);
+        }
+        presetSubmitTimer = window.setTimeout(() => {
+          if (presetForm.requestSubmit) {
+            presetForm.requestSubmit();
+          } else {
+            presetForm.submit();
+          }
+        }, 150);
+      };
+      presetInputs.forEach((input) => {
+        input.addEventListener('change', schedulePresetSubmit);
+      });
       if (window.Office && Office.onReady) {
         Office.onReady(function(info) {
           try {
-            const item = Office.context && Office.context.mailbox && Office.context.mailbox.item;
-            if (!item) { return; }
-            if (item.subject && !subjectField.value) {
-              subjectField.value = item.subject;
+            officeReady = true;
+            officeItem = Office.context && Office.context.mailbox && Office.context.mailbox.item;
+            if (!officeItem) { return; }
+            if (officeItem.subject) {
+              if (typeof officeItem.subject === 'string') {
+                maybeFillSubject(officeItem.subject);
+              } else if (officeItem.subject.getAsync) {
+                officeItem.subject.getAsync(function(res) {
+                  if (res.status === Office.AsyncResultStatus.Succeeded) {
+                    maybeFillSubject(res.value || '');
+                  }
+                });
+              }
             }
-            if (item.body && item.body.getAsync) {
-              item.body.getAsync('text', { asyncContext: null }, function(res) {
-                if (res.status === Office.AsyncResultStatus.Succeeded && !bodyField.value.trim()) {
-                  bodyField.value = res.value || '';
+            if (officeItem.getReplyBodyAsync) {
+              officeItem.getReplyBodyAsync(function(res) {
+                if (res.status === Office.AsyncResultStatus.Succeeded) {
+                  maybeFillBody(res.value || '');
+                }
+              });
+            } else if (officeItem.body && officeItem.body.getAsync) {
+              officeItem.body.getAsync(Office.CoercionType.Text, function(res) {
+                if (res.status === Office.AsyncResultStatus.Succeeded) {
+                  maybeFillBody(res.value || '');
                 }
               });
             }
@@ -1550,8 +1671,29 @@ def save_api_settings():
     return _render(message="已保存 API 配置信息")
 
 
+def _ssl_context():
+    """Return an SSL context if HTTPS is requested via environment variables."""
+
+    ssl_cert = os.environ.get("LLM_MAILER_SSL_CERT")
+    ssl_key = os.environ.get("LLM_MAILER_SSL_KEY")
+    if ssl_cert and ssl_key:
+        return ssl_cert, ssl_key
+
+    # Fallback to Werkzeug's adhoc certificate for quick local testing.
+    ssl_mode = (os.environ.get("LLM_MAILER_SSL") or "").lower()
+    if ssl_mode in {"1", "true", "on", "adhoc"}:
+        return "adhoc"
+
+    return None
+
+
 def main() -> None:
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), debug=False)
+    app.run(
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 7999)),
+        debug=False,
+        ssl_context=_ssl_context(),
+    )
 
 
 if __name__ == "__main__":

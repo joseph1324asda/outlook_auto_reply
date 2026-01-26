@@ -27,9 +27,9 @@
 3. 一键启动前端页面：
    ```bash
    export FLASK_ENV=production  # 可选
-   python -m llm_mailer         # 或 python -m llm_mailer.web_app，默认监听 8000 端口
+   python -m llm_mailer         # 或 python -m llm_mailer.web_app，默认监听 7999 端口
    ```
-   - 打开浏览器访问 `http://localhost:8000`，填写邮件摘要并可多选/组合风格预设，一键生成草稿。
+   - 打开浏览器访问 `http://localhost:7999`，填写邮件摘要并可多选/组合风格预设，一键生成草稿。
    - 页面内可直接输入/选择 API Base URL、模型名、API Key（保存在 `data/app_settings.json`）。
    - 在同一页面选择 PDF 文件即可上传并自动写入 `data/manuals.json`，源文件保存在 `data/manual_uploads/`。
    - 在“创建 / 修改风格预设”区域可新增或覆盖预设，保存到 `data/presets.json`，随后即可在风格列表多选组合。
