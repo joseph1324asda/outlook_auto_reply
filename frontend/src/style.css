@@ -1,0 +1,4 @@
+body { margin: 0; background: #f5f7fb; }
+.logo { color: white; font-weight: 700; font-size: 18px; margin: 16px; }
+.content { padding: 24px; }
+.card-grid { display: grid; grid-template-columns: repeat(4, minmax(180px, 1fr)); gap: 16px; margin-bottom: 16px; }
